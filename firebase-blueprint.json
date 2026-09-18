@@ -1,0 +1,157 @@
+{
+  "version": "1.0",
+  "entities": {
+    "users": {
+      "fields": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "description": "ADMIN or STREAMER" },
+        "streamerId": { "type": "string", "description": "Linked streamer doc ID if role is STREAMER" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      }
+    },
+    "streamers": {
+      "fields": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "description": "active or inactive" },
+        "avatar": { "type": "string" },
+        "joinDate": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      }
+    },
+    "shifts": {
+      "fields": {
+        "name": { "type": "string" },
+        "code": { "type": "string", "description": "SHIFT 1, SHIFT 2, SHIFT 3" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "durationHours": { "type": "number" },
+        "isOvernight": { "type": "boolean" }
+      }
+    },
+    "schedules": {
+      "fields": {
+        "date": { "type": "string", "description": "YYYY-MM-DD" },
+        "streamerId": { "type": "string" },
+        "streamerName": { "type": "string" },
+        "shiftId": { "type": "string" },
+        "shiftName": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "status": { "type": "string", "description": "Scheduled, Live, Completed, Missed" },
+        "hasReport": { "type": "boolean" },
+        "reportId": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      }
+    },
+    "live_sessions": {
+      "fields": {
+        "streamerId": { "type": "string" },
+        "streamerName": { "type": "string" },
+        "businessDate": { "type": "string", "description": "YYYY-MM-DD - starts shift date" },
+        "shiftId": { "type": "string" },
+        "shiftName": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "durationHours": { "type": "number" },
+        "viewers": { "type": "number" },
+        "uniqueViewers": { "type": "number" },
+        "peakViewers": { "type": "number" },
+        "averageViewers": { "type": "number" },
+        "newFollowers": { "type": "number" },
+        "totalFollowers": { "type": "number" },
+        "likes": { "type": "number" },
+        "comments": { "type": "number" },
+        "shares": { "type": "number" },
+        "productClicks": { "type": "number" },
+        "productImpressions": { "type": "number" },
+        "checkout": { "type": "number" },
+        "orders": { "type": "number" },
+        "productsSold": { "type": "number" },
+        "revenue": { "type": "number" },
+        "cancelledOrders": { "type": "number" },
+        "refundOrders": { "type": "number" },
+        "refundAmount": { "type": "number" },
+        "voucherUsed": { "type": "number" },
+        "affiliateOrders": { "type": "number" },
+        "affiliateRevenue": { "type": "number" },
+        "adsSpend": { "type": "number" },
+        "conversionRate": { "type": "number" },
+        "revenuePerHour": { "type": "number" },
+        "ordersPerHour": { "type": "number" },
+        "viewersPerHour": { "type": "number" },
+        "revenuePerViewer": { "type": "number" },
+        "averageOrderValue": { "type": "number" },
+        "notes": { "type": "string" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" },
+        "createdBy": { "type": "string" }
+      }
+    },
+    "products": {
+      "fields": {
+        "name": { "type": "string" },
+        "sku": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "status": { "type": "string", "description": "active or inactive" },
+        "createdAt": { "type": "timestamp" }
+      }
+    },
+    "product_sales": {
+      "fields": {
+        "sessionId": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "revenue": { "type": "number" },
+        "businessDate": { "type": "string" },
+        "streamerId": { "type": "string" }
+      }
+    },
+    "targets": {
+      "fields": {
+        "type": { "type": "string", "description": "individual or team" },
+        "period": { "type": "string", "description": "daily, weekly, monthly, yearly" },
+        "targetValue": { "type": "number" },
+        "metric": { "type": "string", "description": "revenue, orders, viewers" },
+        "streamerId": { "type": "string" },
+        "streamerName": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" }
+      }
+    },
+    "notifications": {
+      "fields": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "description": "shift, reminder, report, target, admin, system" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "timestamp" }
+      }
+    },
+    "audit_logs": {
+      "fields": {
+        "user": { "type": "string" },
+        "userId": { "type": "string" },
+        "action": { "type": "string" },
+        "record": { "type": "string" },
+        "oldValue": { "type": "string" },
+        "newValue": { "type": "string" },
+        "timestamp": { "type": "timestamp" }
+      }
+    }
+  }
+}
