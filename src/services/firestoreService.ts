@@ -39,6 +39,7 @@ const TARGETS_COL = 'targets';
 const NOTIFICATIONS_COL = 'notifications';
 const AUDIT_LOGS_COL = 'audit_logs';
 const USERS_COL = 'users';
+const SYSTEM_SETTINGS_COL = 'system_settings';
 
 // --- AUDIT LOGGING ---
 export async function logAudit(
@@ -1070,4 +1071,212 @@ export async function seedInitialDatabase(force = false): Promise<{ success: boo
 }
 
 export const seedInitialDemoData = () => seedInitialDatabase(true);
+
+// --- ADMIN SECURITY & RESET DATABASE TO ZERO ---
+
+export const DEFAULT_ADMIN_PASSWORD = 'admin123';
+
+/**
+ * Fetch current admin master password (stored in Firestore system_settings/security, default: admin123)
+ */
+export async function getAdminPassword(): Promise<string> {
+  try {
+    const docRef = doc(db, SYSTEM_SETTINGS_COL, 'security');
+    const snap = await getDoc(docRef);
+    if (snap.exists() && snap.data()?.adminPassword) {
+      return snap.data().adminPassword;
+    }
+  } catch (err) {
+    console.warn('Could not read admin password from Firestore, using default:', err);
+  }
+  return DEFAULT_ADMIN_PASSWORD;
+}
+
+/**
+ * Update admin master password
+ */
+export async function updateAdminPassword(
+  currentPasswordInput: string,
+  newPassword: string,
+  currentUser: string,
+  currentUserId: string
+): Promise<{ success: boolean; message: string }> {
+  const currentActual = await getAdminPassword();
+  if (currentPasswordInput !== currentActual) {
+    return { success: false, message: 'Kata sandi lama salah! Perubahan kata sandi ditolak.' };
+  }
+
+  if (!newPassword || newPassword.trim().length < 4) {
+    return { success: false, message: 'Kata sandi baru minimal 4 karakter.' };
+  }
+
+  try {
+    const docRef = doc(db, SYSTEM_SETTINGS_COL, 'security');
+    await setDoc(
+      docRef,
+      {
+        adminPassword: newPassword.trim(),
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser,
+        updatedById: currentUserId,
+      },
+      { merge: true }
+    );
+
+    await logAudit(
+      currentUser,
+      currentUserId,
+      'UBAH KATA SANDI ADMIN',
+      'Keamanan Sistem',
+      'Password Lama',
+      'Password Berhasil Diperbarui'
+    );
+
+    return { success: true, message: 'Kata sandi admin berhasil diperbarui!' };
+  } catch (err: any) {
+    console.error('Error updating admin password:', err);
+    return { success: false, message: err.message || 'Gagal memperbarui kata sandi admin.' };
+  }
+}
+
+/**
+ * Check if the database is in a clean slate mode (user intentionally reset to 0)
+ */
+export async function isCleanSlateActive(): Promise<boolean> {
+  if (typeof window !== 'undefined' && localStorage.getItem('shopee_system_clean_slate') === 'true') {
+    return true;
+  }
+  try {
+    const docRef = doc(db, SYSTEM_SETTINGS_COL, 'init');
+    const snap = await getDoc(docRef);
+    if (snap.exists() && snap.data()?.isCleanSlate === true) {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('shopee_system_clean_slate', 'true');
+      }
+      return true;
+    }
+  } catch (err) {
+    console.warn('Error checking clean slate state:', err);
+  }
+  return false;
+}
+
+/**
+ * Helper to delete all documents from a specified collection in batches
+ */
+async function deleteAllDocsInCollection(colName: string): Promise<number> {
+  const colRef = collection(db, colName);
+  const snap = await getDocs(colRef);
+  if (snap.empty) return 0;
+
+  const docs = snap.docs;
+  let deletedCount = 0;
+  // Batch delete in chunks of 350 docs (Firestore limit is 500)
+  for (let i = 0; i < docs.length; i += 350) {
+    const chunk = docs.slice(i, i + 350);
+    const batch = writeBatch(db);
+    chunk.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    deletedCount += chunk.length;
+  }
+  return deletedCount;
+}
+
+export interface ResetDatabaseOptions {
+  resetSessions: boolean;
+  resetSchedules: boolean;
+  resetTargets: boolean;
+  resetStreamers: boolean;
+  resetProducts: boolean;
+}
+
+/**
+ * Reset database to 0 so the application can start completely from scratch.
+ * Requires Admin password validation.
+ */
+export async function resetDatabaseToZero(
+  options: ResetDatabaseOptions,
+  passwordInput: string,
+  currentUser: string,
+  currentUserId: string
+): Promise<{ success: boolean; message: string; deletedStats?: Record<string, number> }> {
+  // 1. Password verification
+  const actualPassword = await getAdminPassword();
+  if (passwordInput !== actualPassword) {
+    return {
+      success: false,
+      message: 'Kata sandi Admin salah! Tindakan reset dibatalkan demi keamanan data.',
+    };
+  }
+
+  try {
+    const stats: Record<string, number> = {};
+
+    // 2. Delete Live Sessions if chosen (sets revenue, orders, viewers, KPIs to 0)
+    if (options.resetSessions) {
+      stats.liveSessions = await deleteAllDocsInCollection(SESSIONS_COL);
+    }
+
+    // 3. Delete Schedules if chosen
+    if (options.resetSchedules) {
+      stats.schedules = await deleteAllDocsInCollection(SCHEDULES_COL);
+    }
+
+    // 4. Delete Targets if chosen
+    if (options.resetTargets) {
+      stats.targets = await deleteAllDocsInCollection(TARGETS_COL);
+    }
+
+    // 5. Delete Streamers if chosen (clean host list)
+    if (options.resetStreamers) {
+      stats.streamers = await deleteAllDocsInCollection(STREAMERS_COL);
+    }
+
+    // 6. Delete Products if chosen (clean product catalog)
+    if (options.resetProducts) {
+      stats.products = await deleteAllDocsInCollection(PRODUCTS_COL);
+    }
+
+    // 7. Mark database as Clean Slate in Firestore and localStorage
+    const initRef = doc(db, SYSTEM_SETTINGS_COL, 'init');
+    await setDoc(
+      initRef,
+      {
+        isCleanSlate: true,
+        resetAt: serverTimestamp(),
+        resetBy: currentUser,
+        resetById: currentUserId,
+        lastResetStats: stats,
+      },
+      { merge: true }
+    );
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('shopee_system_clean_slate', 'true');
+    }
+
+    // 8. Log the reset action to immutable Audit Logs
+    await logAudit(
+      currentUser,
+      currentUserId,
+      'RESET DATABASE KE 0',
+      'Pembersihan Data Demo',
+      'Data Demo Shopee Live Aktif',
+      `Berhasil direset ke 0. Rincian: ${JSON.stringify(stats)}`
+    );
+
+    return {
+      success: true,
+      message: 'Database berhasil direset menjadi 0! Seluruh data demo telah dibersihkan dan aplikasi siap digunakan dari awal.',
+      deletedStats: stats,
+    };
+  } catch (error: any) {
+    console.error('Error resetting database to zero:', error);
+    return {
+      success: false,
+      message: error.message || 'Terjadi kesalahan sistem saat mereset database.',
+    };
+  }
+}
+
 

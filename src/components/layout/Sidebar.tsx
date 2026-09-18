@@ -17,6 +17,8 @@ import {
   AlertCircle,
   Database,
   Sparkles,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../../context/AuthContext';
@@ -46,6 +48,7 @@ interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
   onOpenLiveModal?: () => void;
+  onOpenResetModal?: () => void;
 }
 
 interface NavItemConfig {
@@ -68,6 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onClose,
   onOpenLiveModal,
+  onOpenResetModal,
 }) => {
   const { currentUser, isAdmin } = useAuth();
   const isActuallyOpen = sidebarOpen ?? isOpen ?? false;
@@ -260,10 +264,121 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Sidebar container with 3D Neumorphic Infographic Menu styling */}
       <aside
         id="app-sidebar"
-        className={`fixed top-16 bottom-0 left-0 z-40 w-72 bg-gradient-to-b from-[#f8fafc] via-[#f1f5f9] to-[#e8eef8] border-r-2 border-slate-200/90 shadow-[6px_0_28px_rgba(30,58,138,0.06)] flex flex-col transition-transform duration-200 ease-in-out lg:translate-x-0 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 w-72 bg-gradient-to-b from-[#f8fafc] via-[#f1f5f9] to-[#e8eef8] border-r-2 border-slate-200/90 shadow-[6px_0_28px_rgba(30,58,138,0.06)] flex flex-col transition-transform duration-200 ease-in-out lg:translate-x-0 ${
           isActuallyOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
+        {/* ========================================================= */}
+        {/* BRAND APPLICATION HEADER: "AT - Live Reports" */}
+        {/* ========================================================= */}
+        <div className="px-4 py-3.5 border-b-2 border-slate-200/90 bg-white/85 backdrop-blur-md relative overflow-hidden shrink-0 select-none shadow-[0_2px_10px_rgba(30,58,138,0.04)]">
+          {/* Subtle Ambient Background Gradient Lighting */}
+          <div className="absolute -top-10 -right-10 w-28 h-28 rounded-full bg-gradient-to-br from-cyan-400/20 to-blue-600/10 blur-xl pointer-events-none" />
+          <div className="absolute -bottom-8 -left-8 w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500/15 to-transparent blur-lg pointer-events-none" />
+
+          <div className="flex items-center justify-between relative z-10">
+            <motion.div
+              onClick={() => handleNav('dashboard')}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="flex items-center gap-3 cursor-pointer group"
+            >
+              {/* 3D Animated Clay Sphere Emblem with "AT" Monogram */}
+              <div className="relative shrink-0">
+                {/* Outer Rotating/Pulsing Radar Aura */}
+                <motion.div
+                  className="absolute -inset-1.5 rounded-2xl bg-gradient-to-tr from-blue-500/30 via-cyan-400/25 to-indigo-500/30 blur-xs"
+                  animate={{
+                    opacity: [0.4, 0.9, 0.4],
+                    scale: [0.95, 1.06, 0.95],
+                  }}
+                  transition={{
+                    duration: 3,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                />
+
+                {/* 3D Outer Raised Disc */}
+                <div className="w-12 h-12 rounded-2xl infographic-disc p-1 relative z-10 shadow-[0_6px_16px_rgba(37,99,235,0.22)] group-hover:shadow-[0_8px_20px_rgba(37,99,235,0.35)] transition-shadow">
+                  {/* 3D Inner Tactile Lens with Floating Animation */}
+                  <motion.div
+                    animate={{
+                      y: [0, -1.5, 0],
+                    }}
+                    transition={{
+                      duration: 2.5,
+                      repeat: Infinity,
+                      ease: 'easeInOut',
+                    }}
+                    className="w-full h-full rounded-[13px] bg-gradient-to-br from-blue-600 via-indigo-600 to-cyan-500 flex items-center justify-center relative overflow-hidden shadow-[inset_0_2px_3px_rgba(255,255,255,0.7),inset_0_-2px_4px_rgba(0,0,0,0.35)]"
+                  >
+                    {/* Top Specular Glint */}
+                    <div className="absolute top-0.5 left-1 right-1 h-2 rounded-full bg-white/40 blur-[0.5px]" />
+
+                    {/* "AT" Monogram Typography */}
+                    <span className="font-black text-white text-[15px] tracking-tight drop-shadow-[0_1.5px_2px_rgba(0,0,0,0.4)] flex items-center">
+                      AT
+                    </span>
+
+                    {/* Shimmer light beam running through icon */}
+                    <motion.div
+                      className="absolute inset-0 bg-gradient-to-r from-transparent via-white/35 to-transparent -skew-x-12"
+                      animate={{
+                        x: ['-150%', '200%'],
+                      }}
+                      transition={{
+                        duration: 3.5,
+                        repeat: Infinity,
+                        repeatDelay: 2,
+                        ease: 'easeInOut',
+                      }}
+                    />
+                  </motion.div>
+                </div>
+
+                {/* Live Broadcast Ping Dot on Corner */}
+                <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 z-20">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-80" />
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-cyan-500 border-2 border-white shadow-xs" />
+                </span>
+              </div>
+
+              {/* Title & Brand Description */}
+              <div className="flex flex-col min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <h1 className="text-base font-black tracking-tight text-slate-800 group-hover:text-blue-600 transition-colors flex items-center gap-1 leading-none">
+                    <span>AT</span>
+                    <span className="text-slate-400 font-normal">-</span>
+                    <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 bg-clip-text text-transparent drop-shadow-xs">
+                      Live Reports
+                    </span>
+                  </h1>
+                </div>
+
+                {/* Subtitle with Shopee Live Tag & Pulsing Animation */}
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="px-1.5 py-0.2 rounded-md bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[9px] font-black uppercase tracking-wider shadow-2xs">
+                    SHOPEE
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-bold tracking-tight truncate">
+                    Live Stream Intelligence
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Mobile Close Drawer Button */}
+            <button
+              type="button"
+              onClick={handleClose}
+              className="lg:hidden w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
         <div className="flex-1 overflow-y-auto px-3.5 py-4 space-y-5">
           {navItems.map((group, gIdx) => (
             <div key={gIdx} className="space-y-2">
@@ -425,6 +540,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Admin-only Reset Data ke 0 Button */}
+          {isAdmin && onOpenResetModal && (
+            <button
+              type="button"
+              onClick={onOpenResetModal}
+              className="w-full flex items-center justify-between px-3 py-2 bg-rose-50/90 hover:bg-rose-100 text-rose-700 border border-rose-200/90 rounded-xl text-xs font-bold transition-all active:scale-98 cursor-pointer shadow-xs"
+            >
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span className="text-[11px] font-extrabold">Reset Data ke 0</span>
+              </div>
+              <span className="text-[9px] bg-rose-200 text-rose-900 px-1.5 py-0.5 rounded-md font-black">
+                Admin
+              </span>
+            </button>
+          )}
 
           <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-[10px] text-amber-900 font-bold">
             <div className="flex items-center gap-1.5">

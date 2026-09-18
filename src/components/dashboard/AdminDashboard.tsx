@@ -60,6 +60,7 @@ interface AdminDashboardProps {
   schedules: Schedule[];
   onOpenNewLiveModal: (sessionToEdit?: LiveSession) => void;
   onNavigateTab: (tab: any) => void;
+  onOpenResetModal?: () => void;
 }
 
 const COLORS = ['#ea580c', '#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#f59e0b'];
@@ -70,6 +71,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   schedules,
   onOpenNewLiveModal,
   onNavigateTab,
+  onOpenResetModal,
 }) => {
   const { currentUser } = useAuth();
 
@@ -346,6 +348,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           {/* Export & Quick Actions */}
           <div className="flex items-center gap-2">
+            {onOpenResetModal && (
+              <button
+                type="button"
+                onClick={onOpenResetModal}
+                title="Reset Database Menjadi 0 Data (Khusus Admin Berkata Sandi)"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-100 hover:text-white bg-rose-600/80 hover:bg-rose-600 border border-rose-400/50 rounded-xl shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-white" />
+                <span>Reset ke 0</span>
+              </button>
+            )}
             <button
               type="button"
               id="admin-export-pdf-btn"

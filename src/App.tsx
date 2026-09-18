@@ -17,6 +17,7 @@ import { TargetManagementView } from './components/targets/TargetManagementView'
 import { StreamerManagementView } from './components/streamers/StreamerManagementView';
 import { AuditLogsView } from './components/audit/AuditLogsView';
 import { InputLiveReportModal } from './components/live-sessions/InputLiveReportModal';
+import { ResetDataModal } from './components/admin/ResetDataModal';
 import {
   subscribeLiveSessions,
   subscribeStreamers,
@@ -25,6 +26,7 @@ import {
   subscribeProducts,
   subscribeAuditLogs,
   seedInitialDemoData,
+  isCleanSlateActive,
 } from './services/firestoreService';
 import {
   LiveSession,
@@ -51,6 +53,7 @@ function MainApp() {
 
   // Live report modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<LiveSession | null>(null);
   const [prefillData, setPrefillData] = useState<{
     streamerId?: string;
@@ -65,9 +68,16 @@ function MainApp() {
     const unsubSessions = subscribeLiveSessions((data) => setSessions(data));
     const unsubStreamers = subscribeStreamers((data) => {
       setStreamers(data);
-      // If no streamers exist yet, seed the initial database with Dona, Nina, Nata, Fawwas
+      // If no streamers exist yet, seed initial data ONLY if clean slate has not been set by Admin
       if (data.length === 0) {
-        seedInitialDemoData().catch(console.error);
+        const isCleanLocal = typeof window !== 'undefined' && localStorage.getItem('shopee_system_clean_slate') === 'true';
+        if (!isCleanLocal) {
+          isCleanSlateActive().then((cleanActive) => {
+            if (!cleanActive) {
+              seedInitialDemoData().catch(console.error);
+            }
+          });
+        }
       }
     });
     const unsubSchedules = subscribeSchedules((data) => setSchedules(data));
@@ -143,6 +153,7 @@ function MainApp() {
         schedules={schedules}
         onOpenNewLiveModal={handleOpenNewReport}
         onNavigateTab={(tab) => setActiveTab(tab)}
+        onOpenResetModal={() => setIsResetModalOpen(true)}
       />
     );
   };
@@ -160,6 +171,7 @@ function MainApp() {
         isOpen={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
         onOpenLiveModal={handleOpenNewReport}
+        onOpenResetModal={() => setIsResetModalOpen(true)}
       />
 
       {/* MAIN CONTENT AREA */}
@@ -168,6 +180,7 @@ function MainApp() {
           streamers={streamers}
           onOpenLiveModal={handleOpenNewReport}
           onMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
+          onOpenResetModal={() => setIsResetModalOpen(true)}
         />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
@@ -230,6 +243,12 @@ function MainApp() {
         prefillStreamerId={prefillData.streamerId}
         prefillShiftId={prefillData.shiftId}
         prefillDate={prefillData.date}
+      />
+
+      {/* RESET DATABASE TO ZERO MODAL (ADMIN ONLY) */}
+      <ResetDataModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
       />
     </div>
   );

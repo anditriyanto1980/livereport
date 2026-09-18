@@ -1,5 +1,5 @@
 {
-  "name": "Livestream Performance Management System",
+  "name": "AT - Live Reports",
   "description": "Sistem Monitoring, Analytics & Performance Management Tim Live Streamer Shopee",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

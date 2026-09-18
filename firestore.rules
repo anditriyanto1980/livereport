@@ -47,10 +47,14 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Audit Logs collection: create & read allowed, update/delete denied for immutability
+    // System Settings collection
+    match /system_settings/{settingId} {
+      allow read, write: if true;
+    }
+
+    // Audit Logs collection
     match /audit_logs/{logId} {
-      allow read, create: if true;
-      allow update, delete: if false;
+      allow read, write: if true;
     }
   }
 }
