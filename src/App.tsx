@@ -163,7 +163,7 @@ function MainApp() {
       />
 
       {/* MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 bg-[#edf3fc]">
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-72 bg-[#edf3fc]">
         <Header
           streamers={streamers}
           onOpenLiveModal={handleOpenNewReport}

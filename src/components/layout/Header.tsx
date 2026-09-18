@@ -8,6 +8,7 @@ import {
   RefreshCw,
   ChevronDown,
   Sparkles,
+  Database,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Streamer } from '../../types';
@@ -88,6 +89,12 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-[10px] font-bold shadow-xs">
             <Sparkles className="w-3 h-3 text-cyan-300" />
             <span>AI+ Live Analytics</span>
+          </div>
+
+          <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50/90 border border-amber-200/90 rounded-2xl text-xs shadow-xs text-amber-900 font-bold" title="Database Firestore Aktif">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <Database className="w-3.5 h-3.5 text-amber-600" />
+            <span className="text-[11px]">Firestore Connected</span>
           </div>
         </div>
 
