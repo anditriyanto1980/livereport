@@ -11,6 +11,10 @@ import {
   TrendingUp,
   TrendingDown,
   Target,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -47,6 +51,20 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({ sessions, 
 
   const [selectedYear, setSelectedYear] = useState<number>(currY);
   const [selectedMonth, setSelectedMonth] = useState<number>(currM);
+
+  const changeMonthBy = (offsetMonths: number) => {
+    let newM = selectedMonth + offsetMonths;
+    let newY = selectedYear;
+    if (newM > 12) {
+      newM = 1;
+      newY += 1;
+    } else if (newM < 1) {
+      newM = 12;
+      newY -= 1;
+    }
+    setSelectedMonth(newM);
+    setSelectedYear(newY);
+  };
 
   const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
 
@@ -231,13 +249,47 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({ sessions, 
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Quick month navigators */}
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5 shadow-xs">
+              <button
+                type="button"
+                onClick={() => changeMonthBy(-1)}
+                title="Bulan Sebelumnya"
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedMonth(currM);
+                  setSelectedYear(currY);
+                }}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                  selectedMonth === currM && selectedYear === currY
+                    ? 'bg-orange-500 text-white shadow-2xs'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                Bulan Ini
+              </button>
+              <button
+                type="button"
+                onClick={() => changeMonthBy(1)}
+                title="Bulan Berikutnya"
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
             <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs">
               <Calendar className="w-4 h-4 text-orange-500" />
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-blue-500"
+                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-blue-500"
               >
                 {MONTH_NAMES_ID.map((name, idx) => (
                   <option key={idx} value={idx + 1}>
@@ -249,7 +301,7 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({ sessions, 
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-blue-500"
+                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-blue-500"
               >
                 {[2024, 2025, 2026, 2027].map((yr) => (
                   <option key={yr} value={yr}>
@@ -262,15 +314,15 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({ sessions, 
             <button
               type="button"
               onClick={() => handleExport('pdf')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-orange-500" />
-              <span>Export PDF</span>
+              <span>PDF</span>
             </button>
             <button
               type="button"
               onClick={() => handleExport('excel')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-emerald-600" />
               <span>Excel</span>
@@ -398,6 +450,21 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({ sessions, 
             style={{ width: `${Math.min(100, Math.max(2, targetAchievement))}%` }}
           />
         </div>
+
+        {/* Shortfall or Surplus Banner */}
+        <div className="flex items-center gap-2 pt-1 text-xs">
+          {currentSummary.revenue >= monthlyTargetObj ? (
+            <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 font-bold">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Target Tercapai! Surplus {formatIDR(currentSummary.revenue - monthlyTargetObj)} (+{(targetAchievement - 100).toFixed(1)}%)</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200 font-bold">
+              <AlertCircle className="w-4 h-4 text-amber-600" />
+              <span>Kurang {formatIDR(monthlyTargetObj - currentSummary.revenue)} lagi untuk mencapai target 100% ({MONTH_NAMES_ID[selectedMonth - 1]})</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* DAILY TREND IN THIS MONTH (CHART) */}
@@ -447,6 +514,74 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({ sessions, 
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* DETAILED DAILY BREAKDOWN TABLE */}
+      <div className="clay-card p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">
+              Tabel Performa Tanggal 1 s/d {daysInMonth} ({MONTH_NAMES_ID[selectedMonth - 1]} {selectedYear})
+            </h3>
+            <p className="text-xs text-slate-500 font-medium">Rincian pendapatan, pesanan, dan penonton per hari</p>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+          <table className="w-full text-left text-xs">
+            <thead className="text-[10px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b border-slate-200 font-bold">
+              <tr>
+                <th className="py-3 px-3.5">Hari / Tgl</th>
+                <th className="py-3 px-3.5">Tanggal Lengkap</th>
+                <th className="py-3 px-3.5">Jumlah Sesi</th>
+                <th className="py-3 px-3.5 text-right">Omset (IDR)</th>
+                <th className="py-3 px-3.5 text-right">Orders</th>
+                <th className="py-3 px-3.5 text-right">Viewers</th>
+                <th className="py-3 px-3.5 text-right">AOV Harian</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {dailyBreakdown.map((d, idx) => {
+                const dayAov = safeDivide(d.revenue, d.orders, 0);
+                const hasData = d.sessionsCount > 0;
+                return (
+                  <tr key={idx} className={hasData ? 'hover:bg-blue-50/40 transition-colors font-medium' : 'text-slate-400 opacity-60'}>
+                    <td className="py-2.5 px-3.5 font-bold text-slate-800">{d.day}</td>
+                    <td className="py-2.5 px-3.5 text-slate-500">{d.fullDate}</td>
+                    <td className="py-2.5 px-3.5">
+                      {hasData ? (
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-bold rounded-md border border-blue-100">
+                          {d.sessionsCount} Sesi
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">-</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3.5 text-right font-extrabold text-blue-600">
+                      {formatIDR(d.revenue)}
+                    </td>
+                    <td className="py-2.5 px-3.5 text-right text-slate-700 font-semibold">{formatNumber(d.orders)}</td>
+                    <td className="py-2.5 px-3.5 text-right text-slate-600">{formatNumber(d.viewers)}</td>
+                    <td className="py-2.5 px-3.5 text-right text-slate-600">{formatIDR(Math.round(dayAov))}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
+              <tr>
+                <td className="py-3.5 px-3.5 uppercase text-blue-600 font-extrabold" colSpan={3}>
+                  TOTAL BULAN INI
+                </td>
+                <td className="py-3.5 px-3.5 text-right text-blue-600 font-black text-sm">
+                  {formatIDR(currentSummary.revenue)}
+                </td>
+                <td className="py-3.5 px-3.5 text-right">{formatNumber(currentSummary.orders)}</td>
+                <td className="py-3.5 px-3.5 text-right">{formatNumber(currentSummary.viewers)}</td>
+                <td className="py-3.5 px-3.5 text-right">{formatIDR(currentSummary.averageOrderValue)}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       </div>
     </div>

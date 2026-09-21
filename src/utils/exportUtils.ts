@@ -32,7 +32,7 @@ export function exportToPDF(data: ExportReportData) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text('LIVESTREAM PERFORMANCE MANAGEMENT SYSTEM', 14, 10);
+  doc.text('AT - LIVE REPORTS', 14, 10);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -124,7 +124,7 @@ export function exportToExcel(data: ExportReportData) {
   const wsData: any[][] = [];
 
   // Title header block
-  wsData.push(['LIVESTREAM PERFORMANCE MANAGEMENT SYSTEM - SHOPEE LIVE']);
+  wsData.push(['AT - LIVE REPORTS (SHOPEE LIVE PERFORMANCE SYSTEM)']);
   wsData.push([data.title]);
   wsData.push([`Periode: ${data.periodDescription}`]);
   wsData.push([`Waktu Unduh: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB`]);

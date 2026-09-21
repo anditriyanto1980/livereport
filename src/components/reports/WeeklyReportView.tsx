@@ -10,6 +10,8 @@ import {
   TrendingUp,
   TrendingDown,
   Trophy,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -41,6 +43,16 @@ const DAY_NAMES_ID = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Min
 export const WeeklyReportView: React.FC<WeeklyReportViewProps> = ({ sessions }) => {
   const todayStr = getJakartaDate();
   const [referenceDate, setReferenceDate] = useState<string>(todayStr);
+
+  const changeWeekBy = (offsetWeeks: number) => {
+    const [y, m, d] = referenceDate.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + offsetWeeks * 7);
+    const ny = dt.getFullYear();
+    const nm = String(dt.getMonth() + 1).padStart(2, '0');
+    const nd = String(dt.getDate()).padStart(2, '0');
+    setReferenceDate(`${ny}-${nm}-${nd}`);
+  };
 
   // Compute Monday & Sunday for selected reference date
   const { weekStartStr, weekEndStr, daysArray, prevWeekStartStr, prevWeekEndStr } = useMemo(() => {
@@ -253,10 +265,36 @@ export const WeeklyReportView: React.FC<WeeklyReportViewProps> = ({ sessions }) 
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Quick week navigators */}
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5 shadow-xs">
+              <button
+                type="button"
+                onClick={() => changeWeekBy(-1)}
+                title="Minggu Sebelumnya"
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setReferenceDate(todayStr)}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Minggu Ini
+              </button>
+              <button
+                type="button"
+                onClick={() => changeWeekBy(1)}
+                title="Minggu Berikutnya"
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
             <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs">
               <Calendar className="w-4 h-4 text-orange-500" />
-              <span className="text-xs text-slate-600 font-bold">Pilih Tanggal:</span>
               <input
                 type="date"
                 value={referenceDate}
@@ -268,15 +306,15 @@ export const WeeklyReportView: React.FC<WeeklyReportViewProps> = ({ sessions }) 
             <button
               type="button"
               onClick={() => handleExport('pdf')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-orange-500" />
-              <span>Export PDF</span>
+              <span>PDF</span>
             </button>
             <button
               type="button"
               onClick={() => handleExport('excel')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-emerald-600" />
               <span>Excel</span>

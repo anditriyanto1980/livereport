@@ -26,9 +26,12 @@ import {
   Package,
   Clock,
   Percent,
+  Download,
 } from 'lucide-react';
 import { LiveSession, Streamer } from '../../types';
 import { formatIDR, formatNumber, formatPercent, safeDivide } from '../../utils/formatters';
+import { getJakartaDate } from '../../utils/shiftLogic';
+import { exportToExcel, exportToPDF } from '../../utils/exportUtils';
 
 interface AnalyticsViewProps {
   sessions: LiveSession[];
@@ -44,12 +47,26 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ sessions, streamer
 
   // Filtered Sessions
   const filteredSessions = useMemo(() => {
+    const today = getJakartaDate();
+    let cutoff = '';
+    if (timeframe === '7d' || timeframe === '30d') {
+      const days = timeframe === '7d' ? 7 : 30;
+      const [y, m, d] = today.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      dt.setDate(dt.getDate() - days);
+      const cy = dt.getFullYear();
+      const cm = String(dt.getMonth() + 1).padStart(2, '0');
+      const cd = String(dt.getDate()).padStart(2, '0');
+      cutoff = `${cy}-${cm}-${cd}`;
+    }
+
     return sessions.filter((s) => {
       if (selectedStreamer !== 'ALL' && s.streamerId !== selectedStreamer) return false;
       if (selectedShift !== 'ALL' && s.shiftId !== selectedShift) return false;
+      if (cutoff && s.businessDate < cutoff) return false;
       return true;
     });
-  }, [sessions, selectedStreamer, selectedShift]);
+  }, [sessions, selectedStreamer, selectedShift, timeframe]);
 
   // Aggregate by Date for Trends (Revenue, Orders, Viewers, Products Sold)
   const dateAggregates = useMemo(() => {
@@ -170,6 +187,35 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ sessions, streamer
     return Object.values(map).sort((a, b) => b.revenue - a.revenue).slice(0, 6);
   }, [filteredSessions]);
 
+  // Export Analytics
+  const handleExportAnalytics = () => {
+    const headers = ['Tanggal', 'Omset (IDR)', 'Orders', 'Viewers', 'Produk Terjual', 'Durasi (Jam)'];
+    const rows = dateAggregates.map((d) => [
+      d.date,
+      d.revenue,
+      d.orders,
+      d.viewers,
+      d.productsSold,
+      d.hours,
+    ]);
+
+    const totalRev = dateAggregates.reduce((acc, x) => acc + x.revenue, 0);
+    const totalOrd = dateAggregates.reduce((acc, x) => acc + x.orders, 0);
+
+    exportToExcel({
+      title: 'Laporan Analytics Live Streaming Shopee',
+      periodDescription: timeframe === '7d' ? '7 Hari Terakhir' : timeframe === '30d' ? '30 Hari Terakhir' : 'Semua Periode',
+      summaryKpis: [
+        { label: 'Total Sesi Teranalisis', value: `${filteredSessions.length} Sesi` },
+        { label: 'Total Omset Teranalisis', value: formatIDR(totalRev) },
+        { label: 'Total Orders', value: formatNumber(totalOrd) },
+      ],
+      headers,
+      rows,
+      fileNamePrefix: `Analytics_Report_${timeframe}`,
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Filter Control Bar */}
@@ -190,43 +236,86 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ sessions, streamer
               </div>
             </div>
           </div>
-          <span className="text-xs font-bold px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-xl self-start sm:self-auto">
-            {filteredSessions.length} Sesi Teranalisis
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-xl">
+              {filteredSessions.length} Sesi Teranalisis
+            </span>
+            <button
+              type="button"
+              onClick={handleExportAnalytics}
+              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Excel</span>
+            </button>
+          </div>
         </div>
 
         {/* Filters */}
-        <div className="pt-3 border-t border-slate-200/80 flex flex-wrap items-center gap-3 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-600 font-bold">Filter Streamer:</span>
-            <select
-              id="analytics-streamer-filter"
-              value={selectedStreamer}
-              onChange={(e) => setSelectedStreamer(e.target.value)}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-semibold shadow-xs focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="ALL">Semua Streamer (All)</option>
-              {streamers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+        <div className="pt-3 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-600 font-bold">Filter Streamer:</span>
+              <select
+                id="analytics-streamer-filter"
+                value={selectedStreamer}
+                onChange={(e) => setSelectedStreamer(e.target.value)}
+                className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-semibold shadow-xs focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL">Semua Streamer (All)</option>
+                {streamers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-slate-600 font-bold">Filter Shift:</span>
+              <select
+                id="analytics-shift-filter"
+                value={selectedShift}
+                onChange={(e) => setSelectedShift(e.target.value)}
+                className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-semibold shadow-xs focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL">Semua Shift (All)</option>
+                <option value="shift-1">Shift 1 (06:00 - 15:00)</option>
+                <option value="shift-2">Shift 2 (12:00 - 21:00)</option>
+                <option value="shift-3">Shift 3 (21:00 - 06:00)</option>
+              </select>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-slate-600 font-bold">Filter Shift:</span>
-            <select
-              id="analytics-shift-filter"
-              value={selectedShift}
-              onChange={(e) => setSelectedShift(e.target.value)}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-semibold shadow-xs focus:ring-2 focus:ring-blue-500"
+          {/* Timeframe Switcher */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setTimeframe('all')}
+              className={`px-3 py-1 rounded-lg font-bold text-xs transition-colors cursor-pointer ${
+                timeframe === 'all' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
             >
-              <option value="ALL">Semua Shift (All)</option>
-              <option value="shift-1">Shift 1 (06:00 - 15:00)</option>
-              <option value="shift-2">Shift 2 (12:00 - 21:00)</option>
-              <option value="shift-3">Shift 3 (21:00 - 06:00)</option>
-            </select>
+              Semua Waktu
+            </button>
+            <button
+              type="button"
+              onClick={() => setTimeframe('30d')}
+              className={`px-3 py-1 rounded-lg font-bold text-xs transition-colors cursor-pointer ${
+                timeframe === '30d' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              30 Hari
+            </button>
+            <button
+              type="button"
+              onClick={() => setTimeframe('7d')}
+              className={`px-3 py-1 rounded-lg font-bold text-xs transition-colors cursor-pointer ${
+                timeframe === '7d' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              7 Hari
+            </button>
           </div>
         </div>
       </div>

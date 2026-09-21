@@ -353,10 +353,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 type="button"
                 onClick={onOpenResetModal}
                 title="Reset Database Menjadi 0 Data (Khusus Admin Berkata Sandi)"
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-100 hover:text-white bg-rose-600/80 hover:bg-rose-600 border border-rose-400/50 rounded-xl shadow-sm active:scale-95 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-100 hover:text-white bg-rose-600/80 hover:bg-rose-600 border border-rose-400/50 rounded-xl shadow-sm active:scale-95 transition-all cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5 text-white" />
-                <span>Reset ke 0</span>
+                <span className="hidden xs:inline">Reset ke 0</span>
               </button>
             )}
             <button

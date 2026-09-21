@@ -11,9 +11,14 @@ import {
   TrendingDown,
   Edit2,
   Trash2,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Users,
 } from 'lucide-react';
 import { LiveSession, Streamer } from '../../types';
-import { getJakartaDate } from '../../utils/shiftLogic';
+import { getJakartaDate, SHIFTS } from '../../utils/shiftLogic';
 import {
   formatIDR,
   formatNumber,
@@ -40,11 +45,41 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
   const { currentUser, isAdmin } = useAuth();
   const todayStr = getJakartaDate();
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  const [selectedStreamer, setSelectedStreamer] = useState<string>('ALL');
+  const [selectedShift, setSelectedShift] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Filter Sessions for selected Date
-  const daySessions = useMemo(() => {
+  // Date Navigation
+  const changeDateBy = (offsetDays: number) => {
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + offsetDays);
+    const ny = dt.getFullYear();
+    const nm = String(dt.getMonth() + 1).padStart(2, '0');
+    const nd = String(dt.getDate()).padStart(2, '0');
+    setSelectedDate(`${ny}-${nm}-${nd}`);
+  };
+
+  // Raw sessions for selected Date (unfiltered by streamer/shift, for date-wide KPIs)
+  const rawDaySessions = useMemo(() => {
     return sessions.filter((s) => s.businessDate === selectedDate);
   }, [sessions, selectedDate]);
+
+  // Filtered Sessions for selected Date + Streamer + Shift + Search
+  const daySessions = useMemo(() => {
+    return rawDaySessions.filter((s) => {
+      if (selectedStreamer !== 'ALL' && s.streamerId !== selectedStreamer) return false;
+      if (selectedShift !== 'ALL' && s.shiftId !== selectedShift) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchName = s.streamerName?.toLowerCase().includes(q);
+        const matchNotes = s.notes?.toLowerCase().includes(q);
+        const matchShift = s.shiftName?.toLowerCase().includes(q);
+        if (!matchName && !matchNotes && !matchShift) return false;
+      }
+      return true;
+    });
+  }, [rawDaySessions, selectedStreamer, selectedShift, searchQuery]);
 
   // Yesterday date & sessions for comparison
   const { yesterdaySessions, yesterdayDateStr } = useMemo(() => {
@@ -214,10 +249,38 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Quick date navigators */}
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5 shadow-xs">
+              <button
+                type="button"
+                onClick={() => changeDateBy(-1)}
+                title="Hari Sebelumnya"
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDate(todayStr)}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                  selectedDate === todayStr ? 'bg-orange-500 text-white shadow-2xs' : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                Hari Ini
+              </button>
+              <button
+                type="button"
+                onClick={() => changeDateBy(1)}
+                title="Hari Berikutnya"
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
             <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs">
               <Calendar className="w-4 h-4 text-orange-500" />
-              <span className="text-xs text-slate-600 font-bold">Pilih Tanggal:</span>
               <input
                 type="date"
                 id="daily-date-input"
@@ -230,19 +293,72 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
             <button
               type="button"
               onClick={() => handleExport('pdf')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-orange-500" />
-              <span>Export PDF</span>
+              <span>PDF</span>
             </button>
             <button
               type="button"
               onClick={() => handleExport('excel')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-emerald-600" />
               <span>Excel</span>
             </button>
+          </div>
+        </div>
+
+        {/* Secondary Filter Row: Streamer, Shift, Search */}
+        <div className="pt-3 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Streamer Filter */}
+            <div className="flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-slate-500 font-bold">Streamer:</span>
+              <select
+                value={selectedStreamer}
+                onChange={(e) => setSelectedStreamer(e.target.value)}
+                className="bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL">Semua Streamer ({streamers.length})</option>
+                {streamers.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Shift Filter */}
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-slate-500 font-bold">Shift:</span>
+              <select
+                value={selectedShift}
+                onChange={(e) => setSelectedShift(e.target.value)}
+                className="bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL">Semua Shift</option>
+                {SHIFTS.map((sh) => (
+                  <option key={sh.id} value={sh.id}>
+                    {sh.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="relative min-w-[200px] flex-1 sm:flex-initial">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari nama streamer / catatan..."
+              className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 shadow-xs focus:ring-2 focus:ring-blue-500"
+            />
           </div>
         </div>
       </div>
