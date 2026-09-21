@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   Trash2,
   Edit2,
+  UploadCloud,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -53,6 +54,8 @@ import {
 import { exportToExcel, exportToPDF, exportToCSV } from '../../utils/exportUtils';
 import { deleteLiveSession } from '../../services/firestoreService';
 import { useAuth } from '../../context/AuthContext';
+import { getJakartaDate } from '../../utils/shiftLogic';
+import { WawasanLivestreamCard } from './WawasanLivestreamCard';
 
 interface AdminDashboardProps {
   sessions: LiveSession[];
@@ -682,6 +685,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
               <span>10 Charts Analytics</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigateTab('wawasan-livestream')}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold text-orange-800 bg-orange-50 hover:bg-orange-100 border border-orange-200 shadow-xs transition-all active:scale-95"
+            >
+              <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center text-white">
+                <ShoppingBag className="w-3 h-3" />
+              </div>
+              <span>Wawasan Livestream</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigateTab('import-livestream')}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 shadow-xs transition-all active:scale-95"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>Import Screenshot AI</span>
+            </button>
           </div>
         </div>
       </div>
@@ -831,6 +854,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
         </div>
       )}
+
+      {/* TODAY'S WAWASAN LIVESTREAM (16 KPIS DARI SHOPEE LIVE) */}
+      <WawasanLivestreamCard
+        sessions={sessions}
+        todayDateStr={getJakartaDate()}
+        isAdmin={true}
+        onNavigateTab={onNavigateTab}
+        onOpenManualModal={() => onNavigateTab('input-live')}
+      />
 
       {/* 8 KPI CARDS WITH GROWTH COMPARISON IN CLAY CARD */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

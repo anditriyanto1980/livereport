@@ -16,6 +16,8 @@ import { ProductCatalogView } from './components/products/ProductCatalogView';
 import { TargetManagementView } from './components/targets/TargetManagementView';
 import { StreamerManagementView } from './components/streamers/StreamerManagementView';
 import { AuditLogsView } from './components/audit/AuditLogsView';
+import { ShopeeImportView } from './components/reports/ShopeeImportView';
+import { WawasanLivestreamView } from './components/reports/WawasanLivestreamView';
 import { InputLiveReportModal } from './components/live-sessions/InputLiveReportModal';
 import { ResetDataModal } from './components/admin/ResetDataModal';
 import { AdminAuthModal } from './components/admin/AdminAuthModal';
@@ -245,6 +247,23 @@ function MainApp() {
           ) : (
             <>
               {activeTab === 'dashboard' && renderDashboard()}
+              {activeTab === 'wawasan-livestream' && (
+                <WawasanLivestreamView
+                  streamers={streamers}
+                  sessions={sessions}
+                  onNavigateTab={(tab) => setActiveTab(tab)}
+                />
+              )}
+              {activeTab === 'import-livestream' && (
+                <ShopeeImportView
+                  streamers={streamers}
+                  sessions={sessions}
+                  onNavigateTab={(tab) => setActiveTab(tab)}
+                  onSuccessSave={() => {
+                    setActiveTab('wawasan-livestream');
+                  }}
+                />
+              )}
               {activeTab === 'daily-report' && (
                 <DailyReportView
                   sessions={sessions}

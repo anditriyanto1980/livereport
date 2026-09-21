@@ -17,10 +17,12 @@ import {
   Calendar,
   History,
   Info,
+  UploadCloud,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { LiveSession, Schedule, Target } from '../../types';
 import { getJakartaDate } from '../../utils/shiftLogic';
+import { WawasanLivestreamCard } from './WawasanLivestreamCard';
 import {
   formatIDR,
   formatNumber,
@@ -173,16 +175,38 @@ export const StreamerDashboard: React.FC<StreamerDashboardProps> = ({
             </p>
           </div>
 
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          <button
+            type="button"
+            id="streamer-wawasan-btn"
+            onClick={() => onNavigateTab('wawasan-livestream')}
+            className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold text-orange-950 bg-orange-100 hover:bg-orange-200 rounded-xl shadow-md active:scale-95 transition-all cursor-pointer"
+          >
+            <ShoppingBag className="w-4 h-4 text-orange-700" />
+            <span>Wawasan Livestream</span>
+          </button>
+
+          <button
+            type="button"
+            id="streamer-upload-screenshot-btn"
+            onClick={() => onNavigateTab('import-livestream')}
+            className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 rounded-xl shadow-[0_6px_20px_rgba(249,115,22,0.4)] active:scale-95 transition-all cursor-pointer"
+          >
+            <UploadCloud className="w-4 h-4" />
+            <span>Upload Screenshot AI</span>
+          </button>
+
           <button
             type="button"
             id="streamer-quick-input-btn"
             onClick={() => onOpenNewLiveModal()}
-            className="flex items-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 rounded-xl shadow-[0_6px_20px_rgba(249,115,22,0.4),inset_0_1px_2px_rgba(255,255,255,0.5)] active:scale-95 transition-all self-start md:self-auto"
+            className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold text-white bg-white/20 hover:bg-white/30 border border-white/30 rounded-xl active:scale-95 transition-all cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
-            <span>+ Input Live Report Sekarang</span>
+            <span>Input Manual</span>
           </button>
         </div>
+      </div>
 
         {/* Streamer Profile & Today's Highlight Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative z-10">
@@ -346,142 +370,15 @@ export const StreamerDashboard: React.FC<StreamerDashboardProps> = ({
         </div>
       )}
 
-      {/* TODAY'S PERFORMANCE (8 METRICS AS REQUESTED) IN CLAY CARD */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-extrabold text-slate-800 tracking-tight uppercase">
-              Today's Performance
-            </h2>
-            <p className="text-xs text-slate-500">
-              Performa sesi live Anda pada hari ini ({todayStr})
-            </p>
-          </div>
-          {todaySessions.length > 0 ? (
-            <span className="text-xs font-bold px-3 py-1 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-xl">
-              {todaySessions.length} Sesi Terlapor Hari Ini
-            </span>
-          ) : (
-            <span className="text-xs font-medium text-slate-400">
-              Belum ada sesi live terlapor hari ini
-            </span>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          {/* 1. Revenue */}
-          <div className="clay-card p-3.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Revenue</span>
-              <div className="w-6 h-6 rounded-full clay-sphere-orange flex items-center justify-center text-white">
-                <DollarSign className="w-3 h-3" />
-              </div>
-            </div>
-            <div className="text-sm sm:text-base font-black text-slate-900 truncate">
-              {formatIDR(todayPerformance.revenue)}
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium">Gross GMV</span>
-          </div>
-
-          {/* 2. Viewer */}
-          <div className="clay-card p-3.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Viewer</span>
-              <div className="w-6 h-6 rounded-full clay-sphere-emerald flex items-center justify-center text-white">
-                <Eye className="w-3 h-3" />
-              </div>
-            </div>
-            <div className="text-sm sm:text-base font-black text-slate-900 truncate">
-              {formatNumber(todayPerformance.viewers)}
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium">Total Penonton</span>
-          </div>
-
-          {/* 3. Checkout */}
-          <div className="clay-card p-3.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Checkout</span>
-              <div className="w-6 h-6 rounded-full clay-sphere-purple flex items-center justify-center text-white">
-                <ShoppingCart className="w-3 h-3" />
-              </div>
-            </div>
-            <div className="text-sm sm:text-base font-black text-slate-900 truncate">
-              {formatNumber(todayPerformance.checkout)}
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium">Keranjang</span>
-          </div>
-
-          {/* 4. Orders */}
-          <div className="clay-card p-3.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Orders</span>
-              <div className="w-6 h-6 rounded-full clay-sphere-cyan flex items-center justify-center text-white">
-                <ShoppingBag className="w-3 h-3" />
-              </div>
-            </div>
-            <div className="text-sm sm:text-base font-black text-slate-900 truncate">
-              {formatNumber(todayPerformance.orders)}
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium">Pesanan Masuk</span>
-          </div>
-
-          {/* 5. Products Sold */}
-          <div className="clay-card p-3.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Products Sold</span>
-              <div className="w-6 h-6 rounded-full clay-sphere-pink flex items-center justify-center text-white">
-                <Package className="w-3 h-3" />
-              </div>
-            </div>
-            <div className="text-sm sm:text-base font-black text-slate-900 truncate">
-              {formatNumber(todayPerformance.productsSold)}
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium">Pcs Terjual</span>
-          </div>
-
-          {/* 6. Conversion */}
-          <div className="clay-card p-3.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Conversion</span>
-              <div className="w-6 h-6 rounded-full clay-sphere-emerald flex items-center justify-center text-white">
-                <Percent className="w-3 h-3" />
-              </div>
-            </div>
-            <div className="text-sm sm:text-base font-black text-emerald-600 truncate">
-              {formatPercent(todayPerformance.conversion)}
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium">Orders / Viewer</span>
-          </div>
-
-          {/* 7. AOV */}
-          <div className="clay-card p-3.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">AOV</span>
-              <div className="w-6 h-6 rounded-full clay-sphere-cyan flex items-center justify-center text-white">
-                <Calculator className="w-3 h-3" />
-              </div>
-            </div>
-            <div className="text-sm sm:text-base font-black text-slate-900 truncate">
-              {formatIDR(todayPerformance.aov)}
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium">Rata-rata Order</span>
-          </div>
-
-          {/* 8. Revenue / Hour */}
-          <div className="clay-card p-3.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Rev / Hour</span>
-              <div className="w-6 h-6 rounded-full clay-sphere-orange flex items-center justify-center text-white">
-                <Clock className="w-3 h-3" />
-              </div>
-            </div>
-            <div className="text-sm sm:text-base font-black text-slate-900 truncate">
-              {formatIDR(todayPerformance.revenuePerHour)}
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium">Per Jam Live</span>
-          </div>
-        </div>
-      </div>
+      {/* TODAY'S PERFORMANCE: REPLACED WITH WAWASAN LIVESTREAM (16 KPIS DARI SHOPEE) */}
+      <WawasanLivestreamCard
+        sessions={mySessions}
+        todayDateStr={todayStr}
+        streamerName={streamerName}
+        isAdmin={false}
+        onNavigateTab={onNavigateTab}
+        onOpenManualModal={onOpenNewLiveModal}
+      />
 
       {/* MONTHLY TARGET WIDGET (PROGRESS BAR) IN CLAY CARD */}
       <div className="clay-card p-6 space-y-4">

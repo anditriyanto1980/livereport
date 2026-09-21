@@ -21,25 +21,15 @@ import {
   X,
   Lock,
   ShieldCheck,
+  ShoppingBag,
+  UploadCloud,
+  Zap,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../../context/AuthContext';
+import { NavTabKey } from '../../types';
 
-export type NavTabKey =
-  | 'dashboard'
-  | 'input-live'
-  | 'analytics'
-  | 'daily-report'
-  | 'weekly-report'
-  | 'monthly-report'
-  | 'yearly-report'
-  | 'streamer-performance'
-  | 'shift-analytics'
-  | 'schedules'
-  | 'products'
-  | 'targets'
-  | 'streamers-mgmt'
-  | 'audit-logs';
+export { type NavTabKey } from '../../types';
 
 interface SidebarProps {
   activeTab: NavTabKey;
@@ -135,12 +125,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
           badge: null,
         },
         {
-          key: 'input-live',
-          label: 'Input Live Report',
-          subtitle: 'Seller Centre Shopee',
-          icon: PlusCircle,
+          key: 'wawasan-livestream',
+          label: 'Wawasan Livestream',
+          subtitle: 'Dashboard 16 KPI Shopee',
+          icon: ShoppingBag,
           lensClass: 'lens-orange',
           glowColor: 'rgba(234, 88, 12, 0.4)',
+          badge: 'Shopee',
+          badgeColor: 'bg-orange-100 text-orange-800 border border-orange-300 font-extrabold',
+        },
+        {
+          key: 'import-livestream',
+          label: 'Import Screenshot AI',
+          subtitle: 'Ekstrak 16 KPI Otomatis',
+          icon: UploadCloud,
+          lensClass: 'lens-rose',
+          glowColor: 'rgba(225, 29, 72, 0.4)',
+          badge: 'AI OCR',
+          badgeColor: 'bg-gradient-to-r from-orange-500 to-amber-500 text-white font-extrabold shadow-2xs',
+        },
+        {
+          key: 'input-live',
+          label: 'Input Live Manual',
+          subtitle: 'Formulir manual sesi live',
+          icon: PlusCircle,
+          lensClass: 'lens-indigo',
+          glowColor: 'rgba(99, 102, 241, 0.4)',
           badge: pendingReportCount > 0 ? `${pendingReportCount} Pending` : null,
           badgeColor: 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold',
         },

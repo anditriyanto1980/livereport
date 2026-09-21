@@ -114,6 +114,20 @@ export interface LiveSession {
   revenuePerViewer: number; // Revenue / Viewers
   averageOrderValue: number; // Revenue / Orders
 
+  // Shopee Wawasan Livestream Specific Metrics
+  platform?: 'Shopee' | 'TikTok' | 'Tokopedia' | string;
+  orderStatus?: string;
+  source?: 'shopee_screenshot_ocr' | 'manual' | string;
+  sales?: number; // Mapped to revenue
+  activeViewers?: number;
+  averageWatchDuration?: number; // In seconds
+  commentRate?: number; // Percentage, e.g. 1.0
+  salesPer1000Views?: number; // In IDR
+  salesPerOrder?: number; // Mapped to averageOrderValue
+  clickRate?: number; // Percentage, e.g. 6.7
+  ordersPerClick?: number; // Percentage, e.g. 5.7
+  buyers?: number;
+
   notes?: string;
   isDemo?: boolean;
 
@@ -121,6 +135,67 @@ export interface LiveSession {
   updatedAt?: any;
   createdBy?: string;
 }
+
+export interface ShopeeConfidenceMap {
+  sales: number;
+  active_viewers: number;
+  comments: number;
+  add_to_cart: number;
+  views: number;
+  average_watch_duration: number;
+  comment_rate: number;
+  sales_per_1000_views: number;
+  orders: number;
+  sales_per_order: number;
+  viewers: number;
+  peak_viewers: number;
+  click_rate: number;
+  orders_per_click: number;
+  buyers: number;
+  products_sold: number;
+}
+
+export interface ShopeeRawExtractedData {
+  platform: string;
+  order_status: string | null;
+  sales: number | null;
+  active_viewers: number | null;
+  comments: number | null;
+  add_to_cart: number | null;
+  views: number | null;
+  average_watch_duration: number | null;
+  comment_rate: number | null;
+  sales_per_1000_views: number | null;
+  orders: number | null;
+  sales_per_order: number | null;
+  viewers: number | null;
+  peak_viewers: number | null;
+  click_rate: number | null;
+  orders_per_click: number | null;
+  buyers: number | null;
+  products_sold: number | null;
+  confidence: ShopeeConfidenceMap;
+  extracted_date?: string | null;
+  extracted_time?: string | null;
+}
+
+export type NavTabKey =
+  | 'dashboard'
+  | 'wawasan-livestream'
+  | 'import-livestream'
+  | 'input-live'
+  | 'analytics'
+  | 'daily-report'
+  | 'weekly-report'
+  | 'monthly-report'
+  | 'yearly-report'
+  | 'streamer-performance'
+  | 'shift-analytics'
+  | 'schedules'
+  | 'products'
+  | 'targets'
+  | 'streamers-mgmt'
+  | 'audit-logs';
 
 export interface Product {
   id: string;
