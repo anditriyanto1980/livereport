@@ -1093,6 +1093,14 @@ export async function getAdminPassword(): Promise<string> {
 }
 
 /**
+ * Verify if the entered password matches the admin master password
+ */
+export async function verifyAdminPassword(passwordInput: string): Promise<boolean> {
+  const actual = await getAdminPassword();
+  return passwordInput.trim() === actual;
+}
+
+/**
  * Update admin master password
  */
 export async function updateAdminPassword(

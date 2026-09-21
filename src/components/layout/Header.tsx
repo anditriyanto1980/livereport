@@ -11,6 +11,9 @@ import {
   Database,
   Trash2,
   Lock,
+  LogOut,
+  KeyRound,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Streamer } from '../../types';
@@ -21,6 +24,7 @@ interface HeaderProps {
   onOpenLiveModal: () => void;
   onMenuToggle: () => void;
   onOpenResetModal?: () => void;
+  onOpenAdminAuthModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -28,8 +32,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenLiveModal,
   onMenuToggle,
   onOpenResetModal,
+  onOpenAdminAuthModal,
 }) => {
-  const { currentUser, switchDemoRole, isAdmin } = useAuth();
+  const { currentUser, switchStreamer, lockAdminSession, isAdmin } = useAuth();
   const [jakartaTime, setJakartaTime] = useState<string>('');
   const [seeding, setSeeding] = useState(false);
 
@@ -157,48 +162,96 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="sm:hidden">Input Live</span>
           </button>
 
-          {/* USER SWITCHER (Styled like the 3D Profile Pill from Reference Image) */}
-          <div className="flex items-center gap-2.5 bg-white border border-blue-100/90 rounded-2xl px-3 py-1.5 shadow-[0_2px_8px_rgba(30,58,138,0.06)]">
-            <div className="relative">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 via-indigo-500 to-blue-700 text-white flex items-center justify-center font-bold text-xs shadow-xs border-2 border-white">
-                {isAdmin ? 'AD' : currentUser?.displayName?.slice(0, 2).toUpperCase() || 'ST'}
+          {/* USER PROFILE & ACCESS GATE (Option 3: Hybrid Architecture) */}
+          {isAdmin ? (
+            /* ADMIN IS LOGGED IN: Show Active Admin Status + Lock Button */
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5 bg-gradient-to-r from-amber-50 to-blue-50 border-2 border-amber-200/90 rounded-2xl px-3 py-1.5 shadow-[0_2px_10px_rgba(245,158,11,0.12)]">
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 via-orange-500 to-blue-700 text-white flex items-center justify-center font-black text-xs shadow-xs border-2 border-white">
+                    👑
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-amber-700 font-black uppercase tracking-wider">
+                      Administrator
+                    </span>
+                    <ShieldCheck className="w-2.5 h-2.5 text-amber-600" />
+                  </div>
+                  <span className="text-slate-900 font-black text-xs">
+                    Full Access (Admin)
+                  </span>
+                </div>
               </div>
-              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
-            </div>
 
-            <div className="flex flex-col">
-              <div className="flex items-center gap-1">
-                <span className="text-[9px] text-blue-600 font-extrabold uppercase tracking-wide">
-                  Aktif Sebagai
-                </span>
-                <Shield className="w-2.5 h-2.5 text-blue-500" />
-              </div>
-              <select
-                value={isAdmin ? 'ADMIN' : currentUser?.streamerId || ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === 'ADMIN') {
-                    switchDemoRole('ADMIN');
-                  } else {
-                    const st = streamers.find((x) => x.id === val);
-                    switchDemoRole('STREAMER', st?.id, st?.name);
-                  }
-                }}
-                className="bg-transparent text-slate-800 font-bold text-xs focus:outline-none cursor-pointer pr-1"
+              {/* Lock / Exit Admin Mode Button */}
+              <button
+                type="button"
+                onClick={lockAdminSession}
+                title="Kunci Akses Admin dan Kembali ke Mode Host Streamer"
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border-2 border-rose-200 rounded-2xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-xs"
               >
-                <option value="ADMIN" className="bg-white text-slate-900 font-semibold">
-                  👑 Admin (Full Access)
-                </option>
-                <optgroup label="Host Streamer" className="bg-slate-50 text-slate-600 font-semibold">
-                  {streamers.map((s) => (
-                    <option key={s.id} value={s.id} className="bg-white text-slate-900 font-medium">
-                      🎙️ Host: {s.name}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
+                <Lock className="w-3.5 h-3.5 text-rose-600" />
+                <span className="hidden sm:inline">Kunci Admin</span>
+                <span className="sm:hidden">Kunci</span>
+              </button>
             </div>
-          </div>
+          ) : (
+            /* REGULAR / HOST MODE: Dropdown only contains Streamers + Separate "Masuk Admin" button */
+            <div className="flex items-center gap-2">
+              {/* Host Streamer Selector (NO ADMIN OPTION HERE) */}
+              <div className="flex items-center gap-2.5 bg-white border border-blue-100/90 rounded-2xl px-3 py-1.5 shadow-[0_2px_8px_rgba(30,58,138,0.06)]">
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 via-indigo-500 to-blue-700 text-white flex items-center justify-center font-bold text-xs shadow-xs border-2 border-white">
+                    {currentUser?.displayName?.replace('Host: ', '').slice(0, 2).toUpperCase() || 'ST'}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
+                </div>
+
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-blue-600 font-extrabold uppercase tracking-wide">
+                      Aktif Sebagai
+                    </span>
+                    <Shield className="w-2.5 h-2.5 text-blue-500" />
+                  </div>
+                  <select
+                    value={currentUser?.streamerId || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const st = streamers.find((x) => x.id === val);
+                      if (st) {
+                        switchStreamer(st.id, st.name);
+                      }
+                    }}
+                    className="bg-transparent text-slate-800 font-bold text-xs focus:outline-none cursor-pointer pr-1"
+                  >
+                    {streamers.map((s) => (
+                      <option key={s.id} value={s.id} className="bg-white text-slate-900 font-medium">
+                        🎙️ Host: {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* SEPARATE ADMIN ACCESS BUTTON (Protected Gate) */}
+              {onOpenAdminAuthModal && (
+                <button
+                  type="button"
+                  onClick={onOpenAdminAuthModal}
+                  title="Buka Hak Akses Administrator (Perlu Kata Sandi)"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white text-xs font-black rounded-2xl shadow-[0_4px_12px_rgba(217,119,6,0.25)] transition-all active:scale-95 cursor-pointer"
+                >
+                  <Lock className="w-3.5 h-3.5 text-amber-100" />
+                  <span className="hidden sm:inline">Akses Admin</span>
+                  <span className="sm:hidden">Admin</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </header>

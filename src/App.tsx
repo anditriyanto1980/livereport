@@ -18,6 +18,8 @@ import { StreamerManagementView } from './components/streamers/StreamerManagemen
 import { AuditLogsView } from './components/audit/AuditLogsView';
 import { InputLiveReportModal } from './components/live-sessions/InputLiveReportModal';
 import { ResetDataModal } from './components/admin/ResetDataModal';
+import { AdminAuthModal } from './components/admin/AdminAuthModal';
+import { Lock, ShieldAlert, ArrowLeft } from 'lucide-react';
 import {
   subscribeLiveSessions,
   subscribeStreamers,
@@ -54,6 +56,7 @@ function MainApp() {
   // Live report modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isAdminAuthModalOpen, setIsAdminAuthModalOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<LiveSession | null>(null);
   const [prefillData, setPrefillData] = useState<{
     streamerId?: string;
@@ -158,6 +161,20 @@ function MainApp() {
     );
   };
 
+  const ADMIN_RESTRICTED_TABS: NavTabKey[] = [
+    'daily-report',
+    'weekly-report',
+    'monthly-report',
+    'yearly-report',
+    'analytics',
+    'shift-analytics',
+    'targets',
+    'streamers-mgmt',
+    'audit-logs',
+  ];
+
+  const isAccessDenied = !isAdmin && ADMIN_RESTRICTED_TABS.includes(activeTab);
+
   return (
     <div className="min-h-screen bg-[#edf3fc] text-slate-800 flex relative selection:bg-blue-500 selection:text-white">
       {/* SIDEBAR NAVIGATION */}
@@ -172,6 +189,7 @@ function MainApp() {
         onClose={() => setMobileMenuOpen(false)}
         onOpenLiveModal={handleOpenNewReport}
         onOpenResetModal={() => setIsResetModalOpen(true)}
+        onOpenAdminAuthModal={() => setIsAdminAuthModalOpen(true)}
       />
 
       {/* MAIN CONTENT AREA */}
@@ -181,52 +199,96 @@ function MainApp() {
           onOpenLiveModal={handleOpenNewReport}
           onMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
           onOpenResetModal={() => setIsResetModalOpen(true)}
+          onOpenAdminAuthModal={() => setIsAdminAuthModalOpen(true)}
         />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
-          {activeTab === 'dashboard' && renderDashboard()}
-          {activeTab === 'daily-report' && (
-            <DailyReportView
-              sessions={sessions}
-              streamers={streamers}
-              onOpenEditModal={handleOpenEditReport}
-            />
+          {/* ACCESS CONTROL GATE FOR NON-ADMIN USERS */}
+          {isAccessDenied ? (
+            <div className="bg-white rounded-3xl p-8 sm:p-12 border-2 border-amber-200 shadow-xl max-w-2xl mx-auto text-center space-y-6 my-12 animate-in fade-in zoom-in-95 duration-200">
+              <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-amber-100 to-orange-100 border-2 border-amber-300 flex items-center justify-center text-amber-600 shadow-inner">
+                <Lock className="w-10 h-10" />
+              </div>
+
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-xs font-black uppercase tracking-wider">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  Area Khusus Administrator
+                </div>
+                <h2 className="text-2xl font-black text-slate-900">
+                  Akses Terbatas: Memerlukan Autentikasi Admin
+                </h2>
+                <p className="text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+                  Laporan finansial, rekapan omset, analisis mendalam, dan konfigurasi tim hanya dapat diakses dengan kata sandi Administrator Shopee Live.
+                </p>
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAdminAuthModalOpen(true)}
+                  className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-2xl font-black text-sm shadow-[0_4px_16px_rgba(217,119,6,0.35)] transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Lock className="w-4 h-4" />
+                  Masukkan Kata Sandi Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('dashboard')}
+                  className="w-full sm:w-auto px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Kembali ke Dashboard Streamer
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {activeTab === 'dashboard' && renderDashboard()}
+              {activeTab === 'daily-report' && (
+                <DailyReportView
+                  sessions={sessions}
+                  streamers={streamers}
+                  onOpenEditModal={handleOpenEditReport}
+                />
+              )}
+              {activeTab === 'weekly-report' && <WeeklyReportView sessions={sessions} />}
+              {activeTab === 'monthly-report' && (
+                <MonthlyReportView sessions={sessions} targets={targets} />
+              )}
+              {activeTab === 'yearly-report' && (
+                <YearlyReportView sessions={sessions} targets={targets} />
+              )}
+              {activeTab === 'analytics' && (
+                <AnalyticsView sessions={sessions} streamers={streamers} />
+              )}
+              {activeTab === 'streamer-performance' && (
+                <StreamerPerformanceView sessions={sessions} streamers={streamers} />
+              )}
+              {activeTab === 'shift-analytics' && <ShiftAnalyticsView sessions={sessions} />}
+              {activeTab === 'schedules' && (
+                <ScheduleManagementView
+                  schedules={schedules}
+                  streamers={streamers}
+                  onOpenLiveReportForSchedule={handleOpenReportFromSchedule}
+                />
+              )}
+              {activeTab === 'products' && (
+                <ProductCatalogView products={products} sessions={sessions} />
+              )}
+              {activeTab === 'targets' && (
+                <TargetManagementView
+                  targets={targets}
+                  streamers={streamers}
+                  sessions={sessions}
+                />
+              )}
+              {activeTab === 'streamers-mgmt' && (
+                <StreamerManagementView streamers={streamers} />
+              )}
+              {activeTab === 'audit-logs' && <AuditLogsView logs={auditLogs} />}
+            </>
           )}
-          {activeTab === 'weekly-report' && <WeeklyReportView sessions={sessions} />}
-          {activeTab === 'monthly-report' && (
-            <MonthlyReportView sessions={sessions} targets={targets} />
-          )}
-          {activeTab === 'yearly-report' && (
-            <YearlyReportView sessions={sessions} targets={targets} />
-          )}
-          {activeTab === 'analytics' && (
-            <AnalyticsView sessions={sessions} streamers={streamers} />
-          )}
-          {activeTab === 'streamer-performance' && (
-            <StreamerPerformanceView sessions={sessions} streamers={streamers} />
-          )}
-          {activeTab === 'shift-analytics' && <ShiftAnalyticsView sessions={sessions} />}
-          {activeTab === 'schedules' && (
-            <ScheduleManagementView
-              schedules={schedules}
-              streamers={streamers}
-              onOpenLiveReportForSchedule={handleOpenReportFromSchedule}
-            />
-          )}
-          {activeTab === 'products' && (
-            <ProductCatalogView products={products} sessions={sessions} />
-          )}
-          {activeTab === 'targets' && (
-            <TargetManagementView
-              targets={targets}
-              streamers={streamers}
-              sessions={sessions}
-            />
-          )}
-          {activeTab === 'streamers-mgmt' && (
-            <StreamerManagementView streamers={streamers} />
-          )}
-          {activeTab === 'audit-logs' && <AuditLogsView logs={auditLogs} />}
         </main>
       </div>
 
@@ -249,6 +311,15 @@ function MainApp() {
       <ResetDataModal
         isOpen={isResetModalOpen}
         onClose={() => setIsResetModalOpen(false)}
+      />
+
+      {/* ADMIN AUTHENTICATION GATE MODAL (OPTION 3 HYBRID) */}
+      <AdminAuthModal
+        isOpen={isAdminAuthModalOpen}
+        onClose={() => setIsAdminAuthModalOpen(false)}
+        onSuccess={() => {
+          setIsAdminAuthModalOpen(false);
+        }}
       />
     </div>
   );

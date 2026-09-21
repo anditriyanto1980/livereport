@@ -19,6 +19,8 @@ import {
   Sparkles,
   Trash2,
   X,
+  Lock,
+  ShieldCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../../context/AuthContext';
@@ -49,6 +51,7 @@ interface SidebarProps {
   onClose?: () => void;
   onOpenLiveModal?: () => void;
   onOpenResetModal?: () => void;
+  onOpenAdminAuthModal?: () => void;
 }
 
 interface NavItemConfig {
@@ -60,7 +63,20 @@ interface NavItemConfig {
   glowColor: string;
   badge?: string | null;
   badgeColor?: string;
+  adminOnly?: boolean;
 }
+
+const ADMIN_RESTRICTED_TABS: NavTabKey[] = [
+  'analytics',
+  'daily-report',
+  'weekly-report',
+  'monthly-report',
+  'yearly-report',
+  'shift-analytics',
+  'targets',
+  'streamers-mgmt',
+  'audit-logs',
+];
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
@@ -72,8 +88,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   onOpenLiveModal,
   onOpenResetModal,
+  onOpenAdminAuthModal,
 }) => {
-  const { currentUser, isAdmin } = useAuth();
+  const { currentUser, isAdmin, lockAdminSession } = useAuth();
   const isActuallyOpen = sidebarOpen ?? isOpen ?? false;
   const [clickedTab, setClickedTab] = useState<string | null>(null);
 
@@ -85,6 +102,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleNav = (tab: NavTabKey) => {
     setClickedTab(tab);
     setTimeout(() => setClickedTab(null), 700);
+
+    // If tab is restricted to Admin and user is in Host mode, trigger Admin Auth Modal!
+    if (!isAdmin && ADMIN_RESTRICTED_TABS.includes(tab)) {
+      if (onOpenAdminAuthModal) {
+        onOpenAdminAuthModal();
+      }
+      handleClose();
+      return;
+    }
 
     if (tab === 'input-live' && onOpenLiveModal) {
       onOpenLiveModal();
@@ -125,12 +151,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: BarChart3,
           lensClass: 'lens-indigo',
           glowColor: 'rgba(79, 70, 229, 0.4)',
-          badge: null,
+          badge: !isAdmin ? '🔒 Admin' : null,
+          badgeColor: 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold',
         },
       ],
     },
     {
-      group: 'LAPORAN & ANALISIS',
+      group: !isAdmin ? 'LAPORAN & ANALISIS (AKSES ADMIN 🔒)' : 'LAPORAN & ANALISIS',
       items: [
         {
           key: 'daily-report',
@@ -139,7 +166,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Calendar,
           lensClass: 'lens-lime',
           glowColor: 'rgba(132, 204, 22, 0.4)',
-          badge: null,
+          badge: !isAdmin ? '🔒 Admin' : null,
+          badgeColor: 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold',
         },
         {
           key: 'weekly-report',
@@ -148,7 +176,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: CalendarDays,
           lensClass: 'lens-teal',
           glowColor: 'rgba(13, 148, 136, 0.4)',
-          badge: null,
+          badge: !isAdmin ? '🔒 Admin' : null,
+          badgeColor: 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold',
         },
         {
           key: 'monthly-report',
@@ -157,7 +186,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: CalendarRange,
           lensClass: 'lens-purple',
           glowColor: 'rgba(147, 51, 234, 0.4)',
-          badge: null,
+          badge: !isAdmin ? '🔒 Admin' : null,
+          badgeColor: 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold',
         },
         {
           key: 'yearly-report',
@@ -166,8 +196,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: TrendingUp,
           lensClass: 'lens-rose',
           glowColor: 'rgba(225, 29, 72, 0.4)',
-          badge: 'Fitur Utama',
-          badgeColor: 'bg-rose-100 text-rose-700 border border-rose-300 font-extrabold',
+          badge: !isAdmin ? '🔒 Admin' : 'Fitur Utama',
+          badgeColor: !isAdmin
+            ? 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold'
+            : 'bg-rose-100 text-rose-700 border border-rose-300 font-extrabold',
         },
         {
           key: 'streamer-performance',
@@ -185,7 +217,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Clock,
           lensClass: 'lens-emerald',
           glowColor: 'rgba(5, 150, 105, 0.4)',
-          badge: null,
+          badge: !isAdmin ? '🔒 Admin' : null,
+          badgeColor: 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold',
         },
       ],
     },
@@ -217,7 +250,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Target,
           lensClass: 'lens-rose',
           glowColor: 'rgba(225, 29, 72, 0.4)',
-          badge: null,
+          badge: !isAdmin ? '🔒 Admin' : null,
+          badgeColor: 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold',
         },
       ],
     },
@@ -541,21 +575,58 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Admin-only Reset Data ke 0 Button */}
-          {isAdmin && onOpenResetModal && (
-            <button
-              type="button"
-              onClick={onOpenResetModal}
-              className="w-full flex items-center justify-between px-3 py-2 bg-rose-50/90 hover:bg-rose-100 text-rose-700 border border-rose-200/90 rounded-xl text-xs font-bold transition-all active:scale-98 cursor-pointer shadow-xs"
-            >
-              <div className="flex items-center gap-2">
-                <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                <span className="text-[11px] font-extrabold">Reset Data ke 0</span>
-              </div>
-              <span className="text-[9px] bg-rose-200 text-rose-900 px-1.5 py-0.5 rounded-md font-black">
-                Admin
-              </span>
-            </button>
+          {/* Admin vs Host Action Controls in Sidebar Footer */}
+          {isAdmin ? (
+            <div className="space-y-1.5">
+              {/* Lock Admin Session */}
+              <button
+                type="button"
+                onClick={lockAdminSession}
+                className="w-full flex items-center justify-between px-3 py-2 bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-300/80 rounded-xl text-xs font-bold transition-all active:scale-98 cursor-pointer shadow-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                  <span className="text-[11px] font-extrabold">Kunci Akses Admin</span>
+                </div>
+                <span className="text-[9px] bg-slate-200 text-slate-800 px-1.5 py-0.5 rounded-md font-black">
+                  Lock
+                </span>
+              </button>
+
+              {/* Admin-only Reset Data ke 0 Button */}
+              {onOpenResetModal && (
+                <button
+                  type="button"
+                  onClick={onOpenResetModal}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-rose-50/90 hover:bg-rose-100 text-rose-700 border border-rose-200/90 rounded-xl text-xs font-bold transition-all active:scale-98 cursor-pointer shadow-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                    <span className="text-[11px] font-extrabold">Reset Data ke 0</span>
+                  </div>
+                  <span className="text-[9px] bg-rose-200 text-rose-900 px-1.5 py-0.5 rounded-md font-black">
+                    Admin
+                  </span>
+                </button>
+              )}
+            </div>
+          ) : (
+            /* Host Mode: Prompt to Unlock Admin */
+            onOpenAdminAuthModal && (
+              <button
+                type="button"
+                onClick={onOpenAdminAuthModal}
+                className="w-full flex items-center justify-between px-3 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-xl text-xs font-black shadow-xs transition-all active:scale-98 cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 text-amber-200 shrink-0" />
+                  <span className="text-[11px]">Buka Hak Akses Admin</span>
+                </div>
+                <span className="text-[9px] bg-white/25 text-white px-1.5 py-0.5 rounded-md font-black">
+                  Password
+                </span>
+              </button>
+            )
           )}
 
           <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-[10px] text-amber-900 font-bold">
