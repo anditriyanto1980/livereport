@@ -177,33 +177,72 @@ export async function deleteProduct(id: string, name: string, user: string, user
   await logAudit(user, userId, 'Hapus Produk', `Produk: ${name} (${id})`, name, 'Dihapus');
 }
 
+// Clean payload to prevent Firestore 'Unsupported field value: undefined' errors
+export function cleanFirestorePayload<T extends Record<string, any>>(obj: T): T {
+  const cleaned: any = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      if (
+        val !== null &&
+        typeof val === 'object' &&
+        !Array.isArray(val) &&
+        !(val instanceof Timestamp) &&
+        !(val instanceof Date)
+      ) {
+        cleaned[key] = cleanFirestorePayload(val);
+      } else {
+        cleaned[key] = val;
+      }
+    }
+  }
+  return cleaned;
+}
+
 // --- LIVE SESSIONS CRUD ---
 export function subscribeLiveSessions(callback: (sessions: LiveSession[]) => void) {
   const colRef = collection(db, SESSIONS_COL);
-  let fallbackUnsub: (() => void) | null = null;
-  const q = query(colRef, orderBy('businessDate', 'desc'));
-  const unsub = onSnapshot(
-    q,
+  return onSnapshot(
+    colRef,
     (snapshot) => {
       const list: LiveSession[] = [];
-      snapshot.forEach((d) => list.push({ id: d.id, ...d.data() } as LiveSession));
+      snapshot.forEach((d) => {
+        const data = d.data();
+        list.push({ id: d.id, ...data } as LiveSession);
+      });
+      // Sort client-side by date desc, then start time desc
+      list.sort((a, b) => {
+        const dateA = a.businessDate || '';
+        const dateB = b.businessDate || '';
+        if (dateA !== dateB) return dateB.localeCompare(dateA);
+        return (b.startTime || '').localeCompare(a.startTime || '');
+      });
       callback(list);
     },
     (err) => {
-      console.warn('subscribeLiveSessions fallback to client-side sort:', err);
-      fallbackUnsub = onSnapshot(colRef, (snapshot) => {
-        const list: LiveSession[] = [];
-        snapshot.forEach((d) => list.push({ id: d.id, ...d.data() } as LiveSession));
-        list.sort((a, b) => b.businessDate.localeCompare(a.businessDate));
-        callback(list);
-      });
+      console.error('Error in subscribeLiveSessions real-time listener:', err);
     }
   );
+}
 
-  return () => {
-    unsub();
-    if (fallbackUnsub) fallbackUnsub();
-  };
+export async function getLiveSessions(): Promise<LiveSession[]> {
+  try {
+    const colRef = collection(db, SESSIONS_COL);
+    const snapshot = await getDocs(colRef);
+    const list: LiveSession[] = [];
+    snapshot.forEach((d) => {
+      list.push({ id: d.id, ...d.data() } as LiveSession);
+    });
+    list.sort((a, b) => {
+      const dateA = a.businessDate || '';
+      const dateB = b.businessDate || '';
+      if (dateA !== dateB) return dateB.localeCompare(dateA);
+      return (b.startTime || '').localeCompare(a.startTime || '');
+    });
+    return list;
+  } catch (err) {
+    console.error('Error in getLiveSessions:', err);
+    return [];
+  }
 }
 
 export async function addLiveSession(
@@ -212,11 +251,12 @@ export async function addLiveSession(
   userId: string
 ): Promise<string> {
   const colRef = collection(db, SESSIONS_COL);
+  const cleanedSession = cleanFirestorePayload(session);
   const docRef = await addDoc(colRef, {
-    ...session,
+    ...cleanedSession,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-    createdBy: userId,
+    createdBy: userId || 'system',
   });
 
   // If session is linked to a schedule, mark schedule completed
@@ -272,8 +312,9 @@ export async function updateLiveSession(
   oldSummary = ''
 ) {
   const docRef = doc(db, SESSIONS_COL, id);
+  const cleanedUpdates = cleanFirestorePayload(updates);
   await updateDoc(docRef, {
-    ...updates,
+    ...cleanedUpdates,
     updatedAt: serverTimestamp(),
   });
 

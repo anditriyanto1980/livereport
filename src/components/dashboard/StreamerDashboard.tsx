@@ -372,7 +372,7 @@ export const StreamerDashboard: React.FC<StreamerDashboardProps> = ({
 
       {/* TODAY'S PERFORMANCE: REPLACED WITH WAWASAN LIVESTREAM (16 KPIS DARI SHOPEE) */}
       <WawasanLivestreamCard
-        sessions={mySessions}
+        sessions={mySessions.length > 0 ? mySessions : sessions}
         todayDateStr={todayStr}
         streamerName={streamerName}
         isAdmin={false}

@@ -31,6 +31,7 @@ import {
   subscribeAuditLogs,
   seedInitialDemoData,
   isCleanSlateActive,
+  getLiveSessions,
 } from './services/firestoreService';
 import {
   LiveSession,
@@ -106,6 +107,17 @@ function MainApp() {
       unsubs.forEach((unsub) => unsub());
     };
   }, []);
+
+  const handleManualRefreshSessions = async () => {
+    try {
+      const fresh = await getLiveSessions();
+      if (fresh && fresh.length > 0) {
+        setSessions(fresh);
+      }
+    } catch (err) {
+      console.warn('Manual refresh sessions error:', err);
+    }
+  };
 
   // Handlers for modal
   const handleOpenNewReport = () => {
@@ -252,6 +264,7 @@ function MainApp() {
                   streamers={streamers}
                   sessions={sessions}
                   onNavigateTab={(tab) => setActiveTab(tab)}
+                  onRefreshSessions={handleManualRefreshSessions}
                 />
               )}
               {activeTab === 'import-livestream' && (

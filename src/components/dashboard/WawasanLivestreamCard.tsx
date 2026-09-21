@@ -37,10 +37,7 @@ export const WawasanLivestreamCard: React.FC<WawasanLivestreamCardProps> = ({
   onOpenManualModal,
 }) => {
   // Default to 'today' if today has sessions; otherwise if there are sessions, default to 'latest'
-  const [viewMode, setViewMode] = useState<'today' | 'latest'>(() => {
-    const hasToday = sessions.some((s) => s.businessDate === todayDateStr);
-    return hasToday ? 'today' : 'latest';
-  });
+  const [viewMode, setViewMode] = useState<'today' | 'latest' | 'all'>('today');
   const [selectedOrderStatus, setSelectedOrderStatus] = useState<string>('Pesanan Siap Dikirim');
 
   // Filter today's sessions
@@ -59,13 +56,25 @@ export const WawasanLivestreamCard: React.FC<WawasanLivestreamCardProps> = ({
     })[0];
   }, [sessions]);
 
+  // Keep viewMode reactive to incoming real-time sessions
+  React.useEffect(() => {
+    if (todaySessions.length > 0) {
+      setViewMode('today');
+    } else if (sessions.length > 0) {
+      setViewMode('latest');
+    }
+  }, [todaySessions.length, sessions.length]);
+
   // Active dataset to display
   const activeSessions = useMemo(() => {
     if (viewMode === 'today') {
       return todaySessions;
     }
+    if (viewMode === 'all') {
+      return sessions;
+    }
     return latestSession ? [latestSession] : [];
-  }, [viewMode, todaySessions, latestSession]);
+  }, [viewMode, todaySessions, latestSession, sessions]);
 
   // Fallback demo data matching the user's uploaded Shopee screenshot
   const isUsingSampleScreenshot = sessions.length === 0 || (activeSessions.length === 0 && viewMode === 'latest');
@@ -181,30 +190,45 @@ export const WawasanLivestreamCard: React.FC<WawasanLivestreamCardProps> = ({
 
         {/* CONTROLS */}
         <div className="flex flex-wrap items-center gap-2">
-          {todaySessions.length === 0 && latestSession && (
+          {sessions.length > 0 && (
             <div className="inline-flex p-0.5 bg-slate-100 rounded-xl border border-slate-200 text-xs font-bold">
               <button
                 type="button"
                 onClick={() => setViewMode('today')}
-                className={`px-2.5 py-1 rounded-lg transition-all ${
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                   viewMode === 'today'
-                    ? 'bg-white text-orange-700 shadow-xs'
+                    ? 'bg-white text-orange-700 shadow-xs font-black'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
-                Hari Ini (0)
+                Hari Ini ({todaySessions.length})
               </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('latest')}
-                className={`px-2.5 py-1 rounded-lg transition-all ${
-                  viewMode === 'latest'
-                    ? 'bg-white text-orange-700 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Sesi Terakhir ({latestSession.businessDate})
-              </button>
+              {latestSession && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode('latest')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    viewMode === 'latest'
+                      ? 'bg-white text-orange-700 shadow-xs font-black'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Sesi Terakhir ({latestSession.businessDate})
+                </button>
+              )}
+              {sessions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode('all')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    viewMode === 'all'
+                      ? 'bg-white text-orange-700 shadow-xs font-black'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Semua ({sessions.length})
+                </button>
+              )}
             </div>
           )}
 

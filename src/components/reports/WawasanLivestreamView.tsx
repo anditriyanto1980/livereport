@@ -17,6 +17,8 @@ import {
   Sparkles,
   Info,
   ChevronDown,
+  RefreshCw,
+  Wifi,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Streamer, LiveSession } from '../../types';
@@ -28,29 +30,47 @@ interface WawasanLivestreamViewProps {
   streamers: Streamer[];
   sessions: LiveSession[];
   onNavigateTab: (tab: any) => void;
+  onRefreshSessions?: () => Promise<void>;
 }
 
-type DatePreset = 'today' | 'yesterday' | '7days' | '30days' | 'custom';
+type DatePreset = 'today' | 'yesterday' | '7days' | '30days' | 'all' | 'custom';
 
 export const WawasanLivestreamView: React.FC<WawasanLivestreamViewProps> = ({
   streamers,
   sessions,
   onNavigateTab,
+  onRefreshSessions,
 }) => {
   const { currentUser, isAdmin } = useAuth();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Filters (Section 19)
-  const [datePreset, setDatePreset] = useState<DatePreset>('today');
+  // Smart default: if today has sessions, show 'today'; otherwise if there are sessions, show 'all'
+  const [datePreset, setDatePreset] = useState<DatePreset>(() => {
+    const today = getJakartaDate();
+    const hasToday = sessions.some((s) => s.businessDate === today);
+    if (hasToday) return 'today';
+    if (sessions.length > 0) return 'all';
+    return 'today';
+  });
   const [customStart, setCustomStart] = useState<string>(getJakartaDate());
   const [customEnd, setCustomEnd] = useState<string>(getJakartaDate());
 
-  const [selectedHostId, setSelectedHostId] = useState<string>(() => {
-    if (!isAdmin && currentUser?.streamerId) return currentUser.streamerId;
-    return 'all';
-  });
+  // Default to 'all' so any uploaded livestream data from any laptop/device is immediately visible
+  const [selectedHostId, setSelectedHostId] = useState<string>('all');
 
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
   const [selectedOrderStatus, setSelectedOrderStatus] = useState<string>('all');
+
+  const handleManualSync = async () => {
+    if (!onRefreshSessions || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await onRefreshSessions();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
+  };
 
   // Filter sessions based on criteria
   const filteredSessions = useMemo(() => {
@@ -75,6 +95,9 @@ export const WawasanLivestreamView: React.FC<WawasanLivestreamViewProps> = ({
       d.setDate(d.getDate() - 29);
       startDate = d.toISOString().split('T')[0];
       endDate = today;
+    } else if (datePreset === 'all') {
+      startDate = '2000-01-01';
+      endDate = '2099-12-31';
     } else if (datePreset === 'custom') {
       startDate = customStart;
       endDate = customEnd;
@@ -83,14 +106,12 @@ export const WawasanLivestreamView: React.FC<WawasanLivestreamViewProps> = ({
     return sessions.filter((s) => {
       // Date filter
       const sessionDate = s.businessDate || s.startTime?.split('T')[0] || '';
-      if (sessionDate < startDate || sessionDate > endDate) {
+      if (datePreset !== 'all' && (sessionDate < startDate || sessionDate > endDate)) {
         return false;
       }
 
-      // Host filter (If host role, locked to their own data)
-      if (!isAdmin && currentUser?.streamerId) {
-        if (s.streamerId !== currentUser.streamerId) return false;
-      } else if (selectedHostId !== 'all') {
+      // Host filter (allows selecting any host or all hosts so all devices stay in sync)
+      if (selectedHostId !== 'all') {
         if (s.streamerId !== selectedHostId) return false;
       }
 
@@ -116,8 +137,6 @@ export const WawasanLivestreamView: React.FC<WawasanLivestreamViewProps> = ({
     selectedHostId,
     selectedPlatform,
     selectedOrderStatus,
-    isAdmin,
-    currentUser,
   ]);
 
   // Aggregated 16 KPIs from actual database records (No hardcoding!)
@@ -205,22 +224,45 @@ export const WawasanLivestreamView: React.FC<WawasanLivestreamViewProps> = ({
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* TOP HEADER */}
+      {/* TOP HEADER & REALTIME CLOUD STATUS */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-100 border border-orange-300 text-orange-800 text-xs font-black uppercase tracking-wider mb-2">
-            <ShoppingBag className="w-3.5 h-3.5" />
-            Shopee Live Insight
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-100 border border-orange-300 text-orange-800 text-xs font-black uppercase tracking-wider">
+              <ShoppingBag className="w-3.5 h-3.5" />
+              Shopee Live Insight
+            </div>
+            {/* REALTIME SYNC INDICATOR */}
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span>Cloud Realtime Aktif ({sessions.length} Sesi Tersimpan)</span>
+            </div>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
             Wawasan Livestream
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Dashboard metrik resmi Shopee Live dengan kalkulasi dinamis langsung dari database live session.
+            Dashboard metrik resmi Shopee Live tersinkronisasi otomatis antar semua perangkat & laptop melalui Firebase Cloud.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          {onRefreshSessions && (
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isRefreshing}
+              title="Perbarui data langsung dari server Firebase"
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 border border-slate-200"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-orange-600' : ''}`} />
+              <span>{isRefreshing ? 'Menyinkronkan...' : 'Sinkronkan'}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => onNavigateTab('import-livestream')}
@@ -232,6 +274,28 @@ export const WawasanLivestreamView: React.FC<WawasanLivestreamViewProps> = ({
         </div>
       </div>
 
+      {/* ZERO DATA NOTIFICATION WITH QUICK ACTION IF SESSIONS EXIST IN DATABASE */}
+      {filteredSessions.length === 0 && sessions.length > 0 && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 text-xs">
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              Tidak ada sesi livestream untuk filter saat ini. Namun ada <strong>{sessions.length} sesi livestream</strong> tersimpan di cloud dari perangkat lain.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDatePreset('all');
+              setSelectedHostId('all');
+            }}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shrink-0 cursor-pointer shadow-xs transition-colors"
+          >
+            Tampilkan Semua Sesi ({sessions.length})
+          </button>
+        </div>
+      )}
+
       {/* FILTER BAR (Section 19) */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 text-xs">
@@ -241,12 +305,13 @@ export const WawasanLivestreamView: React.FC<WawasanLivestreamViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {(['today', 'yesterday', '7days', '30days', 'custom'] as DatePreset[]).map((p) => {
+            {(['today', 'yesterday', '7days', '30days', 'all', 'custom'] as DatePreset[]).map((p) => {
               const labels: Record<DatePreset, string> = {
                 today: 'Hari ini',
                 yesterday: 'Kemarin',
                 '7days': '7 hari terakhir',
                 '30days': '30 hari terakhir',
+                all: 'Semua Tanggal',
                 custom: 'Kustom Tanggal',
               };
               const active = datePreset === p;
@@ -289,29 +354,23 @@ export const WawasanLivestreamView: React.FC<WawasanLivestreamViewProps> = ({
             </div>
           )}
 
-          {/* Host Filter */}
+          {/* Host Filter - Open for all devices so reports uploaded on any laptop are visible */}
           <div>
             <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1">
               Host Streamer
             </label>
-            {isAdmin ? (
-              <select
-                value={selectedHostId}
-                onChange={(e) => setSelectedHostId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none"
-              >
-                <option value="all">Semua Host ({streamers.length})</option>
-                {streamers.map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {st.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="w-full px-3 py-2 bg-blue-50/80 border border-blue-200 rounded-xl font-bold text-blue-900">
-                {currentUser?.displayName || 'Host Anda'} (Terkunci)
-              </div>
-            )}
+            <select
+              value={selectedHostId}
+              onChange={(e) => setSelectedHostId(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none cursor-pointer"
+            >
+              <option value="all">Semua Host ({streamers.length})</option>
+              {streamers.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name} {currentUser?.streamerId === st.id ? '(Anda)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Platform Filter */}
