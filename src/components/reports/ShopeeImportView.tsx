@@ -19,6 +19,9 @@ import {
   ExternalLink,
   ShieldCheck,
   Zap,
+  ZoomIn,
+  X,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Streamer, LiveSession, ShopeeRawExtractedData } from '../../types';
@@ -61,10 +64,19 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
   const [sessionTime, setSessionTime] = useState<string>('08:00');
   const [orderStatus, setOrderStatus] = useState<string>('Pesanan Siap Dikirim');
 
-  // Drag & drop state
+  // Drag & drop & file preview state
   const [isDragging, setIsDragging] = useState(false);
   const [scanStep, setScanStep] = useState<ScanStep>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Uploaded image metadata & preview
+  const [uploadedImageSrc, setUploadedImageSrc] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string>('');
+  const [uploadedFileSize, setUploadedFileSize] = useState<string>('');
+  const [uploadedFileType, setUploadedFileType] = useState<string>('image/jpeg');
+  const [isDemoData, setIsDemoData] = useState<boolean>(false);
+  const [modelUsed, setModelUsed] = useState<string>('');
+  const [showZoomModal, setShowZoomModal] = useState<boolean>(false);
 
   // Extracted Data & Editing State
   const [extractedData, setExtractedData] = useState<ShopeeRawExtractedData | null>(null);
@@ -117,49 +129,49 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     setErrorMessage(null);
     setSaveSuccessMsg(null);
     setDuplicateWarning(null);
+    setIsDemoData(false);
 
-    // Read to base64 strictly in temporary RAM
+    setUploadedFileName(file.name);
+    setUploadedFileSize((file.size / 1024).toFixed(1) + ' KB');
+    setUploadedFileType(file.type);
+
     const reader = new FileReader();
     reader.onload = async () => {
       const base64String = reader.result as string;
+      setUploadedImageSrc(base64String);
 
       try {
         setScanStep('reading');
-        await new Promise((r) => setTimeout(r, 600));
+        await new Promise((r) => setTimeout(r, 400));
 
         setScanStep('processing');
         // Call backend API /api/extract-shopee-screenshot
-        let parsedResult: ShopeeRawExtractedData | null = null;
+        const res = await fetch('/api/extract-shopee-screenshot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: base64String,
+            mimeType: file.type,
+          }),
+        });
 
-        try {
-          const res = await fetch('/api/extract-shopee-screenshot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imageBase64: base64String,
-              mimeType: file.type,
-            }),
-          });
+        const json = await res.json().catch(() => ({}));
 
-          if (res.ok) {
-            const json = await res.json();
-            if (json.success && json.data) {
-              parsedResult = json.data;
-            }
-          }
-        } catch (apiErr) {
-          console.warn('Backend OCR call error, fallback to demo/smart parser:', apiErr);
+        if (!res.ok || !json.success || !json.data) {
+          throw new Error(json.error || `Gagal memproses gambar (${res.status}). Silakan coba ulang.`);
         }
 
-        // If server returned structured data, use it; otherwise fallback to reference data
-        if (!parsedResult) {
-          parsedResult = SAMPLE_SHOPEE_SCREENSHOT_DATA;
-        }
+        const parsedResult: ShopeeRawExtractedData = {
+          ...json.data,
+          isDemo: false,
+        };
+        const usedAi = json.modelUsed || 'AI Vision';
+        setModelUsed(usedAi);
 
         setScanStep('validating');
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 300));
 
-        // Update states
+        // Update states with REAL extracted data from the user's uploaded image
         setExtractedData(parsedResult);
         setEditedData(parsedResult);
         if (parsedResult.order_status) setOrderStatus(parsedResult.order_status);
@@ -189,11 +201,11 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
         setScanStep('preview');
       } catch (err: any) {
         console.error('Extraction error:', err);
-        setErrorMessage(err.message || 'Gagal membaca screenshot. Pastikan screenshot jelas.');
+        setErrorMessage(
+          err.message || 'AI Vision gagal membaca angka dari gambar ini. Anda dapat mencoba scan ulang atau mengisi data manual dengan screenshot tetap tampil di samping.'
+        );
         setScanStep('idle');
       } finally {
-        // IMAGE LIFECYCLE: Immediately discard image reference from memory
-        // No binary, no base64, no file path is ever retained.
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
@@ -201,11 +213,105 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     reader.readAsDataURL(file);
   };
 
+  // Retry scan on the already uploaded image
+  const handleRetryScan = async () => {
+    if (!uploadedImageSrc) return;
+    setErrorMessage(null);
+    setScanStep('processing');
+
+    try {
+      const res = await fetch('/api/extract-shopee-screenshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: uploadedImageSrc,
+          mimeType: uploadedFileType || 'image/jpeg',
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json.success || !json.data) {
+        throw new Error(json.error || `Gagal membaca gambar saat dicoba ulang.`);
+      }
+
+      const parsedResult: ShopeeRawExtractedData = {
+        ...json.data,
+        isDemo: false,
+      };
+      setModelUsed(json.modelUsed || 'AI Vision');
+
+      setExtractedData(parsedResult);
+      setEditedData(parsedResult);
+      if (parsedResult.order_status) setOrderStatus(parsedResult.order_status);
+      if (parsedResult.extracted_date) setSessionDate(parsedResult.extracted_date);
+      if (parsedResult.extracted_time) setSessionTime(parsedResult.extracted_time);
+
+      setScanStep('preview');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Gagal memproses gambar saat dicoba ulang.');
+      setScanStep('idle');
+    }
+  };
+
+  // Open manual input with the uploaded screenshot displayed side-by-side
+  const handleOpenManualFromScreenshot = () => {
+    setErrorMessage(null);
+    const blankData: ShopeeRawExtractedData = {
+      platform: 'shopee',
+      order_status: orderStatus || 'Pesanan Siap Dikirim',
+      sales: 0,
+      active_viewers: 0,
+      comments: 0,
+      add_to_cart: 0,
+      views: 0,
+      average_watch_duration: 0,
+      comment_rate: 0,
+      sales_per_1000_views: 0,
+      orders: 0,
+      sales_per_order: 0,
+      viewers: 0,
+      peak_viewers: 0,
+      click_rate: 0,
+      orders_per_click: 0,
+      buyers: 0,
+      products_sold: 0,
+      confidence: {
+        sales: 1,
+        active_viewers: 1,
+        comments: 1,
+        add_to_cart: 1,
+        views: 1,
+        average_watch_duration: 1,
+        comment_rate: 1,
+        sales_per_1000_views: 1,
+        orders: 1,
+        sales_per_order: 1,
+        viewers: 1,
+        peak_viewers: 1,
+        click_rate: 1,
+        orders_per_click: 1,
+        buyers: 1,
+        products_sold: 1,
+      },
+      isDemo: false,
+    };
+    setExtractedData(blankData);
+    setEditedData(blankData);
+    setIsEditing(true);
+    setScanStep('preview');
+  };
+
   // Test with demo screenshot data directly
   const handleUseDemoSample = () => {
     setErrorMessage(null);
     setSaveSuccessMsg(null);
     setDuplicateWarning(null);
+    setIsDemoData(true);
+    setUploadedImageSrc(null);
+    setUploadedFileName('Sampel_Shopee_Demo.jpg');
+    setUploadedFileSize('184 KB');
+    setModelUsed('Demo Screenshot');
 
     setScanStep('reading');
     setTimeout(() => {
@@ -213,7 +319,10 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
       setTimeout(() => {
         setScanStep('validating');
         setTimeout(() => {
-          setExtractedData(SAMPLE_SHOPEE_SCREENSHOT_DATA);
+          setExtractedData({
+            ...SAMPLE_SHOPEE_SCREENSHOT_DATA,
+            isDemo: true,
+          });
           setEditedData(SAMPLE_SHOPEE_SCREENSHOT_DATA);
           setOrderStatus(SAMPLE_SHOPEE_SCREENSHOT_DATA.order_status || 'Pesanan Siap Dikirim');
           if (SAMPLE_SHOPEE_SCREENSHOT_DATA.extracted_date) {
@@ -444,19 +553,49 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
 
       {/* ERROR ALERT */}
       {errorMessage && (
-        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4 text-red-900 flex items-start gap-3 shadow-sm animate-in fade-in">
-          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-          <div className="flex-1 text-sm">
-            <div className="font-bold">Gagal Memproses Screenshot</div>
-            <div className="text-red-700 mt-0.5">{errorMessage}</div>
+        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4 text-red-900 space-y-3 shadow-sm animate-in fade-in">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm">
+              <div className="font-extrabold text-red-950">Gagal Memproses Screenshot</div>
+              <div className="text-red-700 text-xs mt-0.5">{errorMessage}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              className="text-red-500 hover:text-red-800 cursor-pointer"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setErrorMessage(null)}
-            className="text-red-500 hover:text-red-800 cursor-pointer"
-          >
-            <XCircle className="w-5 h-5" />
-          </button>
+
+          {uploadedImageSrc && (
+            <div className="pt-2 border-t border-red-200/80 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleRetryScan}
+                className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer flex items-center gap-1.5 transition-all"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Coba Scan Ulang AI
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenManualFromScreenshot}
+                className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-all"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                Input Manual dengan Screenshot di Samping
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3.5 py-1.5 bg-red-100 hover:bg-red-200 text-red-900 rounded-xl text-xs font-bold cursor-pointer transition-all"
+              >
+                Upload Gambar Lain
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -807,25 +946,153 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
             </div>
           )}
 
-          {/* STATUS FILTER ROW */}
-          <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs">
-            <span className="font-bold text-slate-600">Status Pesanan:</span>
-            {isEditing ? (
-              <input
-                type="text"
-                value={orderStatus}
-                onChange={(e) => setOrderStatus(e.target.value)}
-                className="px-3 py-1 bg-white border border-slate-300 rounded-lg text-slate-800 font-bold"
-              />
-            ) : (
-              <span className="font-black text-slate-800 px-3 py-1 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                {orderStatus}
-              </span>
-            )}
-          </div>
+          {/* ORIGIN BANNER (REAL SCREENSHOT VS DEMO SAMPLE) */}
+          {isDemoData ? (
+            <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-950">
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="w-5 h-5 text-amber-600 shrink-0" />
+                <div>
+                  <div className="font-black text-amber-950">Mode Uji Coba: Menggunakan Sampel Screenshot Demo</div>
+                  <div className="text-amber-800 text-[11px] mt-0.5">
+                    Angka yang tampil di bawah adalah data simulasi Shopee (Rp 626.084), bukan dari file yang Anda upload.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs cursor-pointer shadow-xs transition-all"
+              >
+                Upload Screenshot Asli Anda
+              </button>
+            </div>
+          ) : (
+            <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-950">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                <div>
+                  <div className="font-black text-emerald-950">
+                    Hasil Pembacaan Asli dari File Screenshot Anda
+                  </div>
+                  <div className="text-emerald-800 text-[11px] mt-0.5">
+                    File: <strong>{uploadedFileName || 'Screenshot Anda'}</strong> ({uploadedFileSize}) &bull; Engine AI:{' '}
+                    <strong>{modelUsed || 'AI Vision'}</strong>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {uploadedImageSrc && (
+                  <button
+                    type="button"
+                    onClick={() => setShowZoomModal(true)}
+                    className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1 shadow-2xs"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                    Lihat Foto Asli
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-xs"
+                >
+                  Ganti File
+                </button>
+              </div>
+            </div>
+          )}
 
-          {/* 16 KPI METRICS GRID WITH EXACT MAPPING */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {/* SIDE-BY-SIDE VERIFICATION CONTAINER */}
+          <div className={`grid grid-cols-1 ${uploadedImageSrc ? 'lg:grid-cols-12 gap-6' : ''} items-start`}>
+            {uploadedImageSrc && (
+              <div className="lg:col-span-4 bg-slate-50 border border-slate-200 rounded-3xl p-4 space-y-3 lg:sticky lg:top-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <span className="text-xs font-black uppercase text-slate-700 flex items-center gap-1.5">
+                    <ImageIcon className="w-4 h-4 text-orange-600" />
+                    Screenshot Asli Anda
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowZoomModal(true)}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                    Perbesar
+                  </button>
+                </div>
+
+                <div
+                  onClick={() => setShowZoomModal(true)}
+                  className="relative rounded-2xl overflow-hidden border border-slate-200 group cursor-pointer bg-slate-900/5 max-h-[380px] flex items-center justify-center"
+                >
+                  <img
+                    src={uploadedImageSrc}
+                    alt="Shopee Screenshot Upload"
+                    referrerPolicy="no-referrer"
+                    className="w-full object-contain max-h-[380px] group-hover:scale-105 transition-all duration-300"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
+                    <ZoomIn className="w-4 h-4" /> Klik untuk Zoom
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-500 space-y-1 bg-white p-2.5 rounded-xl border border-slate-200">
+                  <div className="flex justify-between">
+                    <span>Nama File:</span>
+                    <span className="font-semibold text-slate-800 truncate max-w-[140px]">{uploadedFileName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Ukuran:</span>
+                    <span className="font-semibold text-slate-800">{uploadedFileSize}</span>
+                  </div>
+                  {modelUsed && (
+                    <div className="flex justify-between">
+                      <span>Model AI:</span>
+                      <span className="font-bold text-emerald-700">{modelUsed}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-slate-200 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRetryScan}
+                    className="flex-1 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3 text-orange-600" />
+                    Scan Ulang
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex-1 py-2 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                  >
+                    Ganti Foto
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className={`${uploadedImageSrc ? 'lg:col-span-8' : 'w-full'} space-y-4`}>
+              {/* STATUS FILTER ROW */}
+              <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs">
+                <span className="font-bold text-slate-600">Status Pesanan:</span>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={orderStatus}
+                    onChange={(e) => setOrderStatus(e.target.value)}
+                    className="px-3 py-1 bg-white border border-slate-300 rounded-lg text-slate-800 font-bold"
+                  />
+                ) : (
+                  <span className="font-black text-slate-800 px-3 py-1 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                    {orderStatus}
+                  </span>
+                )}
+              </div>
+
+              {/* 16 KPI METRICS GRID WITH EXACT MAPPING */}
+              <div className={`grid grid-cols-2 ${uploadedImageSrc ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-4'} gap-3`}>
             {/* 1. Penjualan (Rp) */}
             <div className="bg-orange-50/60 border border-orange-200 rounded-2xl p-4 space-y-1 relative">
               <div className="flex items-center justify-between">
@@ -1168,6 +1435,8 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
               <div className="text-[10px] text-slate-400">products_sold (pcs)</div>
             </div>
           </div>
+        </div>
+      </div>
 
           {/* BOTTOM ACTIONS */}
           <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1197,6 +1466,38 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
                 <Save className="w-4 h-4" />
                 {isSaving ? 'Menyimpan ke Database...' : 'SIMPAN DATA KE DATABASE'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FULL-SIZE SCREENSHOT ZOOM MODAL */}
+      {showZoomModal && uploadedImageSrc && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowZoomModal(false)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-3 bg-slate-900 text-white flex items-center justify-between text-xs font-bold">
+              <span>Screenshot Asli: {uploadedFileName || 'Wawasan Livestream Shopee'}</span>
+              <button
+                type="button"
+                onClick={() => setShowZoomModal(false)}
+                className="p-1 hover:bg-white/20 rounded-lg text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-auto p-4 flex items-center justify-center max-h-[calc(90vh-45px)]">
+              <img
+                src={uploadedImageSrc}
+                alt="Zoomed Screenshot"
+                referrerPolicy="no-referrer"
+                className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-md"
+              />
             </div>
           </div>
         </div>

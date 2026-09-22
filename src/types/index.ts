@@ -177,6 +177,8 @@ export interface ShopeeRawExtractedData {
   confidence: ShopeeConfidenceMap;
   extracted_date?: string | null;
   extracted_time?: string | null;
+  modelUsed?: string;
+  isDemo?: boolean;
 }
 
 export type NavTabKey =

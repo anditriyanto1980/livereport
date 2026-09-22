@@ -23,6 +23,48 @@ function getAi(): GoogleGenAI {
   return aiClient;
 }
 
+// List of vision-capable models in priority fallback order
+const CANDIDATE_VISION_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-3.8-flash',
+  'gemini-flash-latest',
+  'gemini-3.1-flash-lite',
+];
+
+function parseIndonesianNumber(val: any): number | null {
+  if (val === null || val === undefined || val === '') return null;
+  if (typeof val === 'number') return isNaN(val) ? null : val;
+  if (typeof val === 'string') {
+    // If HH:MM:SS format (e.g. 00:00:20 or 01:15:00)
+    if (val.includes(':')) {
+      const parts = val.split(':').map((p) => parseInt(p.trim(), 10) || 0);
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+    }
+
+    // Clean strings like "Rp 626.084" or "6,7%" or "1.500 pcs"
+    let clean = val.replace(/Rp|\s|%|pcs|menit|detik/gi, '').trim();
+
+    // If both dot and comma exist e.g. 1.250.000,50
+    if (clean.includes('.') && clean.includes(',')) {
+      clean = clean.replace(/\./g, '').replace(',', '.');
+    } else if (clean.includes(',')) {
+      // Indonesian decimal separator e.g. "6,7" -> "6.7"
+      clean = clean.replace(',', '.');
+    } else if (clean.includes('.')) {
+      // Could be thousand separator e.g. 626.084 or 3.948 or 158.583
+      const parts = clean.split('.');
+      if (parts.length > 1 && parts.every((p, idx) => idx === 0 || p.length === 3)) {
+        clean = clean.replace(/\./g, '');
+      }
+    }
+
+    const num = parseFloat(clean);
+    return isNaN(num) ? null : num;
+  }
+  return null;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -40,7 +82,7 @@ async function startServer() {
   });
 
   // POST /api/extract-shopee-screenshot
-  // Extracts all 16 KPIs from Shopee Livestream Insight screenshot using Gemini 3.8 Flash Vision
+  // Extracts all 16 KPIs from Shopee Livestream Insight screenshot using Gemini Flash Vision
   // ZERO disk storage, ZERO permanent image holding. Buffer is discarded immediately.
   app.post('/api/extract-shopee-screenshot', async (req, res) => {
     try {
@@ -48,6 +90,7 @@ async function startServer() {
 
       if (!imageBase64 || typeof imageBase64 !== 'string') {
         return res.status(400).json({
+          success: false,
           error: 'Gambar tidak ditemukan dalam request.',
           details: 'Pastikan file screenshot terkirim dalam format base64.',
         });
@@ -84,6 +127,7 @@ Here is the visual mapping of the Shopee Wawasan Livestream dashboard:
    - "Produk Terjual" (e.g., "25" -> 25)
 
 CRITICAL RULES FOR NUMERIC VALUES:
+- Read the EXACT numbers present on THIS specific uploaded screenshot image. Do NOT invent, hallucinate, or copy numbers from any other image.
 - Indonesian thousands use DOT (".") as separator: "626.084" MUST be the number 626084 (integer), NOT 626.084. "3.948" MUST be 3948.
 - Indonesian decimals use COMMA (","): "1,0%" MUST be 1.0. "6,7%" MUST be 6.7. "5,7%" MUST be 5.7.
 - Durations like "00:00:20" MUST be converted to integer total seconds: 20. If "01:10:30", convert to 1*3600 + 10*60 + 30 = 4230 seconds.
@@ -134,35 +178,113 @@ You MUST return a JSON object strictly matching this schema:
 }`;
 
       const ai = getAi();
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: prompt },
+      let lastError: any = null;
+      let rawResponseText = '';
+      let successfulModel = '';
+
+      // Try candidate models in order until one succeeds
+      for (const modelName of CANDIDATE_VISION_MODELS) {
+        try {
+          console.log(`[OCR] Trying model ${modelName}...`);
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: [
               {
-                inlineData: {
-                  mimeType: mimeType || 'image/jpeg',
-                  data: cleanBase64,
-                },
+                role: 'user',
+                parts: [
+                  { text: prompt },
+                  {
+                    inlineData: {
+                      mimeType: mimeType || 'image/jpeg',
+                      data: cleanBase64,
+                    },
+                  },
+                ],
               },
             ],
-          },
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.1,
+            },
+          });
 
-      const responseText = response.text || '{}';
-      const parsedData = JSON.parse(responseText);
+          if (response && response.text) {
+            rawResponseText = response.text;
+            successfulModel = modelName;
+            console.log(`[OCR] Successfully processed with model ${modelName}`);
+            break;
+          }
+        } catch (modelErr: any) {
+          console.warn(`[OCR] Model ${modelName} failed:`, modelErr?.message || modelErr);
+          lastError = modelErr;
+          // Continue to next model in list
+        }
+      }
+
+      if (!rawResponseText) {
+        throw new Error(
+          lastError?.message ||
+            'Semua model AI Vision sedang mengalami lonjakan beban. Harap coba lagi atau gunakan input manual.'
+        );
+      }
+
+      // Safe JSON parsing handling any markdown codeblocks or trailing characters
+      let cleanJson = rawResponseText.trim();
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanJson = jsonMatch[0];
+      }
+
+      const parsedData = JSON.parse(cleanJson);
+
+      // Normalize all numeric fields using parseIndonesianNumber
+      const normalizedData = {
+        platform: 'shopee',
+        order_status: parsedData.order_status || 'Pesanan Siap Dikirim',
+        sales: parseIndonesianNumber(parsedData.sales),
+        active_viewers: parseIndonesianNumber(parsedData.active_viewers),
+        comments: parseIndonesianNumber(parsedData.comments),
+        add_to_cart: parseIndonesianNumber(parsedData.add_to_cart),
+        views: parseIndonesianNumber(parsedData.views),
+        average_watch_duration: parseIndonesianNumber(parsedData.average_watch_duration),
+        comment_rate: parseIndonesianNumber(parsedData.comment_rate),
+        sales_per_1000_views: parseIndonesianNumber(parsedData.sales_per_1000_views),
+        orders: parseIndonesianNumber(parsedData.orders),
+        sales_per_order: parseIndonesianNumber(parsedData.sales_per_order),
+        viewers: parseIndonesianNumber(parsedData.viewers),
+        peak_viewers: parseIndonesianNumber(parsedData.peak_viewers),
+        click_rate: parseIndonesianNumber(parsedData.click_rate),
+        orders_per_click: parseIndonesianNumber(parsedData.orders_per_click),
+        buyers: parseIndonesianNumber(parsedData.buyers),
+        products_sold: parseIndonesianNumber(parsedData.products_sold),
+        extracted_date: parsedData.extracted_date || null,
+        extracted_time: parsedData.extracted_time || null,
+        confidence: {
+          sales: parsedData.confidence?.sales ?? 0.95,
+          active_viewers: parsedData.confidence?.active_viewers ?? 0.95,
+          comments: parsedData.confidence?.comments ?? 0.95,
+          add_to_cart: parsedData.confidence?.add_to_cart ?? 0.95,
+          views: parsedData.confidence?.views ?? 0.95,
+          average_watch_duration: parsedData.confidence?.average_watch_duration ?? 0.95,
+          comment_rate: parsedData.confidence?.comment_rate ?? 0.95,
+          sales_per_1000_views: parsedData.confidence?.sales_per_1000_views ?? 0.95,
+          orders: parsedData.confidence?.orders ?? 0.95,
+          sales_per_order: parsedData.confidence?.sales_per_order ?? 0.95,
+          viewers: parsedData.confidence?.viewers ?? 0.95,
+          peak_viewers: parsedData.confidence?.peak_viewers ?? 0.95,
+          click_rate: parsedData.confidence?.click_rate ?? 0.95,
+          orders_per_click: parsedData.confidence?.orders_per_click ?? 0.95,
+          buyers: parsedData.confidence?.buyers ?? 0.95,
+          products_sold: parsedData.confidence?.products_sold ?? 0.95,
+        },
+        modelUsed: successfulModel,
+      };
 
       // Return strict structured JSON
       return res.json({
         success: true,
-        data: parsedData,
+        data: normalizedData,
+        modelUsed: successfulModel,
       });
     } catch (err: any) {
       console.error('Error in /api/extract-shopee-screenshot:', err);

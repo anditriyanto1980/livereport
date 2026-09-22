@@ -68,7 +68,8 @@ export const WawasanLivestreamCard: React.FC<WawasanLivestreamCardProps> = ({
   // Active dataset to display
   const activeSessions = useMemo(() => {
     if (viewMode === 'today') {
-      return todaySessions;
+      if (todaySessions.length > 0) return todaySessions;
+      return latestSession ? [latestSession] : [];
     }
     if (viewMode === 'all') {
       return sessions;
@@ -76,33 +77,33 @@ export const WawasanLivestreamCard: React.FC<WawasanLivestreamCardProps> = ({
     return latestSession ? [latestSession] : [];
   }, [viewMode, todaySessions, latestSession, sessions]);
 
-  // Fallback demo data matching the user's uploaded Shopee screenshot
-  const isUsingSampleScreenshot = sessions.length === 0 || (activeSessions.length === 0 && viewMode === 'latest');
+  // Only consider sample demo if completely zero sessions in database
+  const isUsingSampleScreenshot = sessions.length === 0;
 
   // Aggregate 16 KPIs
   const kpiData = useMemo(() => {
-    // If no sessions at all in the database, present the exact metrics from the user's Shopee Livestream screenshot
+    // If no sessions at all in the database, return zeroed metrics
     if (activeSessions.length === 0) {
       return {
-        sales: 626084,
-        active_viewers: 139,
-        comments: 39,
-        add_to_cart: 105,
-        views: 3948,
-        average_watch_duration: 20, // 00:00:20
-        comment_rate: 1.0,
-        sales_per_1000_views: 158583,
-        orders: 15,
-        sales_per_order: 41739,
-        viewers: 3341,
-        peak_viewers: 32,
-        click_rate: 6.7,
-        orders_per_click: 5.7,
-        buyers: 15,
-        products_sold: 25,
+        sales: 0,
+        active_viewers: 0,
+        comments: 0,
+        add_to_cart: 0,
+        views: 0,
+        average_watch_duration: 0,
+        comment_rate: 0,
+        sales_per_1000_views: 0,
+        orders: 0,
+        sales_per_order: 0,
+        viewers: 0,
+        peak_viewers: 0,
+        click_rate: 0,
+        orders_per_click: 0,
+        buyers: 0,
+        products_sold: 0,
         order_status: selectedOrderStatus,
-        session_count: 1,
-        isSample: true,
+        session_count: 0,
+        isSample: false,
       };
     }
 
