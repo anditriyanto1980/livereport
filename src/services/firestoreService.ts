@@ -354,21 +354,48 @@ export async function addSchedule(schedule: Omit<Schedule, 'id'>, user: string, 
   const colRef = collection(db, SCHEDULES_COL);
   const docRef = await addDoc(colRef, {
     ...schedule,
+    hasReport: schedule.hasReport ?? false,
     createdAt: serverTimestamp(),
   });
 
-  // Notification for streamer
+  // 1. Real-time Notification for the assigned Streamer
   try {
     await addDoc(collection(db, NOTIFICATIONS_COL), {
       userId: schedule.streamerId,
-      title: 'Jadwal Live Baru Ditugaskan',
-      message: `Anda ditugaskan pada ${schedule.shiftName}, tanggal ${schedule.date} (${schedule.startTime} - ${schedule.endTime})`,
+      title: `📢 Jadwal Live Baru: ${schedule.shiftName}`,
+      message: `Anda ditugaskan live pada ${schedule.date} (${schedule.startTime} - ${schedule.endTime}). Jangan lupa untuk mengisi laporan setelah sesi berakhir!`,
       type: 'shift',
+      scheduleId: docRef.id,
+      streamerId: schedule.streamerId,
+      streamerName: schedule.streamerName,
+      shiftId: schedule.shiftId,
+      shiftName: schedule.shiftName,
+      date: schedule.date,
+      needsReport: true,
+      priority: 'high',
+      read: false,
+      createdAt: serverTimestamp(),
+    });
+
+    // 2. Real-time Notification for Admin (so admin stays informed about new live shifts needing reports)
+    await addDoc(collection(db, NOTIFICATIONS_COL), {
+      userId: 'ADMIN',
+      title: `🗓️ Jadwal Live Baru: ${schedule.streamerName}`,
+      message: `Jadwal live baru untuk ${schedule.streamerName} pada ${schedule.shiftName} (${schedule.date}, ${schedule.startTime} - ${schedule.endTime}). Menunggu pengisian laporan.`,
+      type: 'shift',
+      scheduleId: docRef.id,
+      streamerId: schedule.streamerId,
+      streamerName: schedule.streamerName,
+      shiftId: schedule.shiftId,
+      shiftName: schedule.shiftName,
+      date: schedule.date,
+      needsReport: true,
+      priority: 'normal',
       read: false,
       createdAt: serverTimestamp(),
     });
   } catch (err) {
-    console.warn('Notification error:', err);
+    console.warn('Notification error on addSchedule:', err);
   }
 
   await logAudit(user, userId, 'Buat Jadwal', `${schedule.streamerName} - ${schedule.date} (${schedule.shiftName})`, '-', 'Scheduled');
@@ -431,22 +458,148 @@ export async function deleteTarget(id: string, label: string, user: string, user
 // --- NOTIFICATIONS ---
 export function subscribeNotifications(userId: string, role: string, callback: (notifications: NotificationItem[]) => void) {
   const colRef = collection(db, NOTIFICATIONS_COL);
-  return onSnapshot(colRef, (snapshot) => {
-    const list: NotificationItem[] = [];
-    snapshot.forEach((d) => {
-      const data = d.data() as Omit<NotificationItem, 'id'>;
-      if (role === 'ADMIN' || data.userId === userId || data.userId === 'ALL') {
-        list.push({ id: d.id, ...data });
-      }
-    });
-    list.sort((a, b) => (b.createdAt?.toMillis ? b.createdAt.toMillis() - (a.createdAt?.toMillis || 0) : 0));
-    callback(list);
-  });
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const list: NotificationItem[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data() as Omit<NotificationItem, 'id'>;
+        // Admin gets all notifications + system, Streamer gets their own + ALL
+        if (role === 'ADMIN' || data.userId === userId || data.userId === 'ALL' || (role === 'ADMIN' && data.userId === 'ADMIN')) {
+          list.push({ id: d.id, ...data });
+        }
+      });
+      list.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+        return timeB - timeA;
+      });
+      callback(list);
+    },
+    (err) => {
+      console.warn('Realtime notifications listener error:', err);
+    }
+  );
 }
 
 export async function markNotificationAsRead(id: string) {
-  const docRef = doc(db, NOTIFICATIONS_COL, id);
-  await updateDoc(docRef, { read: true });
+  try {
+    const docRef = doc(db, NOTIFICATIONS_COL, id);
+    await updateDoc(docRef, { read: true });
+  } catch (err) {
+    console.warn('Error markNotificationAsRead:', err);
+  }
+}
+
+export async function markAllNotificationsAsRead(notifications: NotificationItem[]) {
+  try {
+    const unread = notifications.filter((n) => !n.read);
+    if (unread.length === 0) return;
+    const batch = writeBatch(db);
+    unread.slice(0, 450).forEach((n) => {
+      const docRef = doc(db, NOTIFICATIONS_COL, n.id);
+      batch.update(docRef, { read: true });
+    });
+    await batch.commit();
+  } catch (err) {
+    console.warn('Error markAllNotificationsAsRead:', err);
+  }
+}
+
+export async function deleteNotification(id: string) {
+  try {
+    const docRef = doc(db, NOTIFICATIONS_COL, id);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.warn('Error deleteNotification:', err);
+  }
+}
+
+export async function clearAllNotifications(notifications: NotificationItem[]) {
+  try {
+    if (notifications.length === 0) return;
+    const batch = writeBatch(db);
+    notifications.slice(0, 450).forEach((n) => {
+      const docRef = doc(db, NOTIFICATIONS_COL, n.id);
+      batch.delete(docRef);
+    });
+    await batch.commit();
+  } catch (err) {
+    console.warn('Error clearAllNotifications:', err);
+  }
+}
+
+/**
+ * Send an urgent real-time reminder to streamer & admin for a schedule that needs a live report
+ */
+export async function sendScheduleReportReminder(
+  schedule: Schedule,
+  senderUser: string,
+  senderUserId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const batch = writeBatch(db);
+
+    // 1. Notif to Streamer
+    const streamerNotifRef = doc(collection(db, NOTIFICATIONS_COL));
+    batch.set(streamerNotifRef, {
+      userId: schedule.streamerId,
+      title: `⏰ Pengingat: Segera Isi Laporan Live!`,
+      message: `Jadwal live ${schedule.shiftName} (${schedule.date}, ${schedule.startTime} - ${schedule.endTime}) belum diisi laporannya. Harap segera input live report.`,
+      type: 'reminder',
+      scheduleId: schedule.id,
+      streamerId: schedule.streamerId,
+      streamerName: schedule.streamerName,
+      shiftId: schedule.shiftId,
+      shiftName: schedule.shiftName,
+      date: schedule.date,
+      needsReport: true,
+      priority: 'urgent',
+      read: false,
+      createdAt: serverTimestamp(),
+    });
+
+    // 2. Notif copy to Admin
+    const adminNotifRef = doc(collection(db, NOTIFICATIONS_COL));
+    batch.set(adminNotifRef, {
+      userId: 'ADMIN',
+      title: `⚠️ Pengingat Terkirim: ${schedule.streamerName}`,
+      message: `Pengingat pengisian laporan untuk ${schedule.streamerName} pada ${schedule.shiftName} (${schedule.date}) telah dikirim secara real-time.`,
+      type: 'reminder',
+      scheduleId: schedule.id,
+      streamerId: schedule.streamerId,
+      streamerName: schedule.streamerName,
+      shiftId: schedule.shiftId,
+      shiftName: schedule.shiftName,
+      date: schedule.date,
+      needsReport: true,
+      priority: 'normal',
+      read: false,
+      createdAt: serverTimestamp(),
+    });
+
+    await batch.commit();
+
+    await logAudit(
+      senderUser,
+      senderUserId,
+      'Kirim Pengingat Laporan',
+      `Jadwal: ${schedule.streamerName} - ${schedule.date} (${schedule.shiftName})`,
+      'Belum Laporan',
+      'Pengingat Terkirim'
+    );
+
+    return {
+      success: true,
+      message: `Notifikasi pengingat real-time berhasil dikirim ke streamer ${schedule.streamerName}!`,
+    };
+  } catch (err: any) {
+    console.error('Error sending schedule report reminder:', err);
+    return {
+      success: false,
+      message: err.message || 'Gagal mengirim pengingat.',
+    };
+  }
 }
 
 // --- AUDIT LOGS ---

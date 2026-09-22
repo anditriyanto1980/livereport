@@ -235,6 +235,14 @@ export interface NotificationItem {
   read: boolean;
   createdAt: any;
   actionUrl?: string;
+  scheduleId?: string;
+  streamerId?: string;
+  streamerName?: string;
+  shiftId?: string;
+  shiftName?: string;
+  date?: string;
+  priority?: 'normal' | 'high' | 'urgent';
+  needsReport?: boolean;
 }
 
 export interface AuditLog {

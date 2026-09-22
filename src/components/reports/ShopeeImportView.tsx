@@ -145,20 +145,47 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
         await new Promise((r) => setTimeout(r, 400));
 
         setScanStep('processing');
-        // Call backend API /api/extract-shopee-screenshot
-        const res = await fetch('/api/extract-shopee-screenshot', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: base64String,
-            mimeType: file.type,
-          }),
-        });
+        // Call backend API /api/extract-shopee-screenshot with automatic retry on cold-start (404/502/503)
+        let res: Response | null = null;
+        let lastError = '';
+
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            res = await fetch('/api/extract-shopee-screenshot', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                imageBase64: base64String,
+                mimeType: file.type,
+              }),
+            });
+
+            if (res.ok) break;
+
+            // If server cold start / temporary high demand, wait and retry once
+            if ((res.status === 404 || res.status === 502 || res.status === 503) && attempt === 1) {
+              await new Promise((r) => setTimeout(r, 1200));
+              continue;
+            }
+
+            const errJson = await res.json().catch(() => ({}));
+            lastError = errJson.error || `Server merespon error (${res.status})`;
+          } catch (netErr: any) {
+            lastError = netErr.message || 'Koneksi ke server terputus';
+            if (attempt === 1) {
+              await new Promise((r) => setTimeout(r, 1200));
+            }
+          }
+        }
+
+        if (!res || !res.ok) {
+          throw new Error(lastError || 'Gagal memproses gambar. Silakan klik tombol Coba Scan Ulang AI.');
+        }
 
         const json = await res.json().catch(() => ({}));
 
-        if (!res.ok || !json.success || !json.data) {
-          throw new Error(json.error || `Gagal memproses gambar (${res.status}). Silakan coba ulang.`);
+        if (!json.success || !json.data) {
+          throw new Error(json.error || `Gagal mengekstrak data dari screenshot.`);
         }
 
         const parsedResult: ShopeeRawExtractedData = {
@@ -220,18 +247,44 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     setScanStep('processing');
 
     try {
-      const res = await fetch('/api/extract-shopee-screenshot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: uploadedImageSrc,
-          mimeType: uploadedFileType || 'image/jpeg',
-        }),
-      });
+      let res: Response | null = null;
+      let lastError = '';
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          res = await fetch('/api/extract-shopee-screenshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageBase64: uploadedImageSrc,
+              mimeType: uploadedFileType || 'image/jpeg',
+            }),
+          });
+
+          if (res.ok) break;
+
+          if ((res.status === 404 || res.status === 502 || res.status === 503) && attempt === 1) {
+            await new Promise((r) => setTimeout(r, 1200));
+            continue;
+          }
+
+          const errJson = await res.json().catch(() => ({}));
+          lastError = errJson.error || `Server merespon error (${res.status})`;
+        } catch (netErr: any) {
+          lastError = netErr.message || 'Koneksi ke server terputus';
+          if (attempt === 1) {
+            await new Promise((r) => setTimeout(r, 1200));
+          }
+        }
+      }
+
+      if (!res || !res.ok) {
+        throw new Error(lastError || 'Gagal membaca gambar saat dicoba ulang.');
+      }
 
       const json = await res.json().catch(() => ({}));
 
-      if (!res.ok || !json.success || !json.data) {
+      if (!json.success || !json.data) {
         throw new Error(json.error || `Gagal membaca gambar saat dicoba ulang.`);
       }
 

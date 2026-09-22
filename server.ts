@@ -1,14 +1,13 @@
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Safe directory path for both ESM (dev) and CommonJS (bundled production)
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 // Lazy Gemini AI initialization to prevent crashing if key is missing
 let aiClient: GoogleGenAI | null = null;
@@ -67,24 +66,38 @@ function parseIndonesianNumber(val: any): number | null {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+
+  // Enable CORS for all origins (supporting multi-PC, shared app, iframes, and preview environments)
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   // Support up to 25MB body for screenshot transmission (held purely in RAM)
   app.use(express.json({ limit: '25mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   // Health check API
-  app.get('/api/health', (req, res) => {
+  app.get(['/api/health', '/api/health/'], (req, res) => {
     res.json({
       status: 'ok',
       hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
       time: new Date().toISOString(),
+      port: PORT,
+      env: process.env.NODE_ENV || 'development',
     });
   });
 
-  // POST /api/extract-shopee-screenshot
+  // POST /api/extract-shopee-screenshot (and aliases)
   // Extracts all 16 KPIs from Shopee Livestream Insight screenshot using Gemini Flash Vision
   // ZERO disk storage, ZERO permanent image holding. Buffer is discarded immediately.
-  app.post('/api/extract-shopee-screenshot', async (req, res) => {
+  const handleScreenshotExtraction = async (req: express.Request, res: express.Response) => {
     try {
       const { imageBase64, mimeType = 'image/jpeg' } = req.body;
 
@@ -293,7 +306,12 @@ You MUST return a JSON object strictly matching this schema:
         error: err.message || 'Gagal mengekstrak data dari screenshot Shopee.',
       });
     }
-  });
+  };
+
+  // Mount screenshot extraction routes
+  app.post('/api/extract-shopee-screenshot', handleScreenshotExtraction);
+  app.post('/api/extract-shopee-screenshot/', handleScreenshotExtraction);
+  app.post('/api/extract-livestream-screenshot', handleScreenshotExtraction);
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== 'production') {
@@ -305,6 +323,15 @@ You MUST return a JSON object strictly matching this schema:
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
+
+    // For any unhandled API calls, return JSON 404
+    app.all('/api/*', (req, res) => {
+      res.status(404).json({
+        success: false,
+        error: `Endpoint API ${req.method} ${req.path} tidak ditemukan pada server.`,
+      });
+    });
+
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });

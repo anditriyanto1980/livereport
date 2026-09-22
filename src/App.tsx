@@ -29,6 +29,7 @@ import {
   subscribeTargets,
   subscribeProducts,
   subscribeAuditLogs,
+  subscribeNotifications,
   seedInitialDemoData,
   isCleanSlateActive,
   getLiveSessions,
@@ -40,6 +41,7 @@ import {
   Target,
   Product,
   AuditLog,
+  NotificationItem,
 } from './types';
 
 function MainApp() {
@@ -54,6 +56,7 @@ function MainApp() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Live report modal states
@@ -93,6 +96,11 @@ function MainApp() {
       setAuditLogs(data);
       setLoading(false);
     });
+    const unsubNotifications = subscribeNotifications(
+      currentUser?.streamerId || currentUser?.uid || '',
+      currentUser?.role || 'ADMIN',
+      (data) => setNotifications(data)
+    );
 
     unsubs = [
       unsubSessions,
@@ -101,12 +109,13 @@ function MainApp() {
       unsubTargets,
       unsubProducts,
       unsubAudit,
+      unsubNotifications,
     ];
 
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, []);
+  }, [currentUser?.streamerId, currentUser?.uid, currentUser?.role]);
 
   const handleManualRefreshSessions = async () => {
     try {
@@ -135,19 +144,25 @@ function MainApp() {
   };
 
   const handleOpenReportFromSchedule = (
-    streamerId: string,
-    shiftId: string,
-    date: string
+    streamerId?: string,
+    shiftId?: string,
+    date?: string
   ) => {
     setEditingSession(null);
-    setPrefillData({ streamerId, shiftId, date });
+    setPrefillData({
+      streamerId: streamerId || undefined,
+      shiftId: shiftId || undefined,
+      date: date || undefined,
+    });
     setIsModalOpen(true);
   };
 
-  // Pending report count from schedules
-  const pendingReportCount = schedules.filter(
-    (s) => s.status === 'Completed' && !s.hasReport
-  ).length;
+  // Pending report count from schedules needing reports
+  const pendingReportCount = schedules.filter((s) => {
+    if (s.hasReport || s.status === 'Cancelled') return false;
+    if (!isAdmin && currentUser?.streamerId && s.streamerId !== currentUser.streamerId) return false;
+    return true;
+  }).length;
 
   // Determine which dashboard to show for 'dashboard' tab:
   // If user is Streamer, render StreamerDashboard; if Admin, render AdminDashboard
@@ -210,10 +225,13 @@ function MainApp() {
       <div className="flex-1 flex flex-col min-w-0 lg:ml-72 bg-[#edf3fc]">
         <Header
           streamers={streamers}
+          notifications={notifications}
           onOpenLiveModal={handleOpenNewReport}
           onMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
           onOpenResetModal={() => setIsResetModalOpen(true)}
           onOpenAdminAuthModal={() => setIsAdminAuthModalOpen(true)}
+          onOpenReportForSchedule={handleOpenReportFromSchedule}
+          onNavigateTab={(tab) => setActiveTab(tab)}
         />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">

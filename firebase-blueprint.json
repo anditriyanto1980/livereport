@@ -139,7 +139,16 @@
         "message": { "type": "string" },
         "type": { "type": "string", "description": "shift, reminder, report, target, admin, system" },
         "read": { "type": "boolean" },
-        "createdAt": { "type": "timestamp" }
+        "createdAt": { "type": "timestamp" },
+        "actionUrl": { "type": "string" },
+        "scheduleId": { "type": "string" },
+        "streamerId": { "type": "string" },
+        "streamerName": { "type": "string" },
+        "shiftId": { "type": "string" },
+        "shiftName": { "type": "string" },
+        "date": { "type": "string" },
+        "priority": { "type": "string" },
+        "needsReport": { "type": "boolean" }
       }
     },
     "audit_logs": {

@@ -11,12 +11,22 @@ import {
   Edit2,
   Trash2,
   PlusCircle,
+  Bell,
+  Send,
+  Radio,
+  Sparkles,
+  Check,
 } from 'lucide-react';
 import { Schedule, Streamer, LiveSession } from '../../types';
 import { SHIFTS, getJakartaDate } from '../../utils/shiftLogic';
 import { formatDateID } from '../../utils/formatters';
 import { useAuth } from '../../context/AuthContext';
-import { addSchedule, updateSchedule, deleteSchedule } from '../../services/firestoreService';
+import {
+  addSchedule,
+  updateSchedule,
+  deleteSchedule,
+  sendScheduleReportReminder,
+} from '../../services/firestoreService';
 
 interface ScheduleManagementViewProps {
   schedules: Schedule[];
@@ -35,8 +45,13 @@ export const ScheduleManagementView: React.FC<ScheduleManagementViewProps> = ({
   // Filters
   const [filterStreamer, setFilterStreamer] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [onlyNeedsReport, setOnlyNeedsReport] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+
+  // Reminder states
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
+  const [reminderToast, setReminderToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   // Form states for creating/editing schedule
   const [formDate, setFormDate] = useState<string>(todayStr);
@@ -46,14 +61,77 @@ export const ScheduleManagementView: React.FC<ScheduleManagementViewProps> = ({
   const [formStatus, setFormStatus] = useState<'Scheduled' | 'Live' | 'Completed' | 'Missed' | 'Cancelled'>('Scheduled');
   const [submitting, setSubmitting] = useState(false);
 
+  // Schedules that need live reports
+  const schedulesNeedingReport = useMemo(() => {
+    return schedules.filter((s) => !s.hasReport && s.status !== 'Cancelled');
+  }, [schedules]);
+
   // Filtered schedules
   const filteredSchedules = useMemo(() => {
     return schedules.filter((s) => {
       if (filterStreamer !== 'ALL' && s.streamerId !== filterStreamer) return false;
       if (filterStatus !== 'ALL' && s.status !== filterStatus) return false;
+      if (onlyNeedsReport && (s.hasReport || s.status === 'Cancelled')) return false;
       return true;
     });
-  }, [schedules, filterStreamer, filterStatus]);
+  }, [schedules, filterStreamer, filterStatus, onlyNeedsReport]);
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setReminderToast({ msg, type });
+    setTimeout(() => {
+      setReminderToast(null);
+    }, 4500);
+  };
+
+  const handleSendReminder = async (sc: Schedule) => {
+    setSendingReminderId(sc.id);
+    try {
+      const res = await sendScheduleReportReminder(
+        sc,
+        currentUser?.displayName || 'Admin',
+        currentUser?.uid || 'admin'
+      );
+      if (res.success) {
+        showToast(res.message, 'success');
+      } else {
+        showToast(res.message, 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Gagal mengirim pengingat', 'error');
+    } finally {
+      setSendingReminderId(null);
+    }
+  };
+
+  const handleSendAllReminders = async () => {
+    if (schedulesNeedingReport.length === 0) return;
+    if (
+      !confirm(
+        `Kirim notifikasi pengingat real-time ke ${schedulesNeedingReport.length} jadwal yang belum diisi laporannya?`
+      )
+    ) {
+      return;
+    }
+
+    setSendingReminderId('ALL');
+    try {
+      for (const sc of schedulesNeedingReport) {
+        await sendScheduleReportReminder(
+          sc,
+          currentUser?.displayName || 'Admin',
+          currentUser?.uid || 'admin'
+        );
+      }
+      showToast(
+        `Berhasil mengirim ${schedulesNeedingReport.length} notifikasi pengingat ke seluruh streamer!`,
+        'success'
+      );
+    } catch (err: any) {
+      showToast('Terjadi kesalahan saat mengirim pengingat masal.', 'error');
+    } finally {
+      setSendingReminderId(null);
+    }
+  };
 
   const handleOpenCreateModal = () => {
     setEditingSchedule(null);
@@ -135,6 +213,24 @@ export const ScheduleManagementView: React.FC<ScheduleManagementViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Toast Feedback for Real-Time Reminder */}
+      {reminderToast && (
+        <div
+          className={`fixed bottom-6 left-6 z-50 px-4 py-3 rounded-2xl shadow-xl border text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+            reminderToast.type === 'success'
+              ? 'bg-emerald-900/90 text-white border-emerald-500 backdrop-blur-md'
+              : 'bg-rose-900/90 text-white border-rose-500 backdrop-blur-md'
+          }`}
+        >
+          {reminderToast.type === 'success' ? (
+            <Check className="w-4 h-4 text-emerald-400" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-rose-400" />
+          )}
+          <span>{reminderToast.msg}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="clay-card p-6 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -143,26 +239,81 @@ export const ScheduleManagementView: React.FC<ScheduleManagementViewProps> = ({
               <CalendarCheck className="w-5 h-5 drop-shadow-xs" />
             </div>
             <div>
-              <h1 className="text-xl font-extrabold text-slate-800 uppercase tracking-tight">
-                Manajemen Jadwal Live Streamer
+              <h1 className="text-xl font-extrabold text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                <span>Manajemen Jadwal Live Streamer</span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-black tracking-normal lowercase first-letter:uppercase">
+                  <Radio className="w-3 h-3 text-blue-600 animate-pulse" />
+                  Real-time Sync
+                </span>
               </h1>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Penjadwalan shift live streaming Shopee dan pemantauan kelengkapan input laporan.
+                Penjadwalan shift live streaming Shopee dengan notifikasi real-time otomatis untuk admin dan streamer.
               </p>
             </div>
           </div>
 
-          {isAdmin && (
+          <div className="flex items-center gap-2">
+            {isAdmin && schedulesNeedingReport.length > 0 && (
+              <button
+                type="button"
+                id="send-all-reminders-btn"
+                onClick={handleSendAllReminders}
+                disabled={sendingReminderId === 'ALL'}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-amber-800 bg-amber-100/80 hover:bg-amber-200/80 border border-amber-300 rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                title="Kirim notifikasi pengingat ke seluruh streamer yang jadwalnya belum ada laporan"
+              >
+                <Bell className={`w-3.5 h-3.5 text-amber-700 ${sendingReminderId === 'ALL' ? 'animate-bounce' : ''}`} />
+                <span>{sendingReminderId === 'ALL' ? 'Mengirim...' : `Ingatkan Semua (${schedulesNeedingReport.length})`}</span>
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                type="button"
+                id="add-schedule-btn"
+                onClick={handleOpenCreateModal}
+                className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tambah Jadwal Live</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Real-time Notification Status Banner */}
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/80 via-indigo-50/80 to-amber-50/80 border border-blue-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Bell className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                <span>Notifikasi Otomatis Terintegrasi</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              </h4>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                Setiap pembuatan jadwal live otomatis mengirim notifikasi ke Streamer & Admin. Jika sesi berakhir tanpa laporan, pengingat dapat dikirimkan secara instan.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              id="add-schedule-btn"
-              onClick={handleOpenCreateModal}
-              className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-md transition-all active:scale-95"
+              onClick={() => setOnlyNeedsReport(!onlyNeedsReport)}
+              className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition-all cursor-pointer border flex items-center gap-1.5 ${
+                onlyNeedsReport
+                  ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              <span>Tambah Jadwal Live</span>
+              <span>⚠️ Perlu Laporan</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${onlyNeedsReport ? 'bg-amber-700 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                {schedulesNeedingReport.length}
+              </span>
             </button>
-          )}
+          </div>
         </div>
 
         {/* Filters */}
@@ -257,43 +408,68 @@ export const ScheduleManagementView: React.FC<ScheduleManagementViewProps> = ({
                 )}
 
                 {/* Report status & action */}
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                  {sc.hasReport ? (
-                    <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px]">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      Laporan Tersimpan
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onOpenLiveReportForSchedule(sc.streamerId, sc.shiftId, sc.date)
-                      }
-                      className="flex items-center gap-1 text-[11px] font-extrabold text-blue-600 hover:text-blue-700 transition-colors"
-                    >
-                      <PlusCircle className="w-3.5 h-3.5" />
-                      Input Live Report
-                    </button>
-                  )}
+                <div className="pt-2.5 border-t border-slate-100 flex flex-col gap-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    {sc.hasReport ? (
+                      <span className="text-emerald-700 font-bold flex items-center gap-1.5 text-[11px] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        Laporan Selesai
+                      </span>
+                    ) : (
+                      <span className="text-amber-800 font-bold flex items-center gap-1.5 text-[11px] bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                        Perlu Input Laporan
+                      </span>
+                    )}
 
-                  {isAdmin && (
-                    <div className="flex items-center gap-1">
+                    {isAdmin && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(sc)}
+                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                          title="Edit Jadwal"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSchedule(sc.id, `${sc.streamerName} (${sc.date})`)}
+                          className="p-1.5 text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="Hapus"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions when schedule has NO report yet */}
+                  {!sc.hasReport && (
+                    <div className="flex items-center gap-2 pt-1">
                       <button
                         type="button"
-                        onClick={() => handleOpenEditModal(sc)}
-                        className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Edit Jadwal"
+                        onClick={() =>
+                          onOpenLiveReportForSchedule(sc.streamerId, sc.shiftId, sc.date)
+                        }
+                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 text-[11px] font-black text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
                       >
-                        <Edit2 className="w-3.5 h-3.5" />
+                        <PlusCircle className="w-3.5 h-3.5" />
+                        <span>Isi Laporan</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteSchedule(sc.id, `${sc.streamerName} (${sc.date})`)}
-                        className="p-1.5 text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                        title="Hapus"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleSendReminder(sc)}
+                          disabled={sendingReminderId === sc.id}
+                          className="flex items-center gap-1 py-1.5 px-2.5 text-[11px] font-bold text-amber-800 bg-amber-100/90 hover:bg-amber-200 border border-amber-300 rounded-xl transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                          title="Kirim notifikasi pengingat real-time ke streamer ini"
+                        >
+                          <Bell className={`w-3.5 h-3.5 text-amber-700 ${sendingReminderId === sc.id ? 'animate-spin' : ''}`} />
+                          <span className="hidden sm:inline">Ingatkan</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

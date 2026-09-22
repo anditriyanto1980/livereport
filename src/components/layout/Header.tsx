@@ -16,23 +16,30 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { Streamer } from '../../types';
+import { Streamer, NotificationItem, NavTabKey } from '../../types';
 import { seedInitialDemoData } from '../../services/firestoreService';
+import { NotificationCenter } from '../notifications/NotificationCenter';
 
 interface HeaderProps {
   streamers: Streamer[];
+  notifications?: NotificationItem[];
   onOpenLiveModal: () => void;
   onMenuToggle: () => void;
   onOpenResetModal?: () => void;
   onOpenAdminAuthModal?: () => void;
+  onOpenReportForSchedule?: (streamerId?: string, shiftId?: string, date?: string) => void;
+  onNavigateTab?: (tab: NavTabKey) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   streamers,
+  notifications = [],
   onOpenLiveModal,
   onMenuToggle,
   onOpenResetModal,
   onOpenAdminAuthModal,
+  onOpenReportForSchedule,
+  onNavigateTab,
 }) => {
   const { currentUser, switchStreamer, lockAdminSession, isAdmin } = useAuth();
   const [jakartaTime, setJakartaTime] = useState<string>('');
@@ -149,6 +156,15 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
           )}
+
+          {/* Real-Time Notification Center */}
+          <NotificationCenter
+            notifications={notifications}
+            onOpenReportForSchedule={onOpenReportForSchedule}
+            onNavigateTab={onNavigateTab}
+            currentUserRole={currentUser?.role}
+            currentUserId={currentUser?.uid}
+          />
 
           {/* "+ Input Laporan Live" Primary Button */}
           <button
