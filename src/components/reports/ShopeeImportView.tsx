@@ -130,6 +130,9 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     setSaveSuccessMsg(null);
     setDuplicateWarning(null);
     setIsDemoData(false);
+    setExtractedData(null);
+    setEditedData({});
+    setIsEditing(false);
 
     setUploadedFileName(file.name);
     setUploadedFileSize((file.size / 1024).toFixed(1) + ' KB');
@@ -145,12 +148,13 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
         await new Promise((r) => setTimeout(r, 400));
 
         setScanStep('processing');
-        // Multi-candidate endpoint retry mechanism to guarantee cross-PC and proxy compatibility
+        // Multi-candidate endpoint retry mechanism with cache-busting timestamp
+        const cacheBuster = `_t=${Date.now()}`;
         const candidateEndpoints = [
-          '/api/extract-shopee-screenshot',
-          `${window.location.origin}/api/extract-shopee-screenshot`,
-          '/api/extract-livestream-screenshot',
-          '/api/shopee-ocr',
+          `/api/extract-shopee-screenshot?${cacheBuster}`,
+          `${window.location.origin}/api/extract-shopee-screenshot?${cacheBuster}`,
+          `/api/extract-livestream-screenshot?${cacheBuster}`,
+          `/api/shopee-ocr?${cacheBuster}`,
         ];
 
         let res: Response | null = null;
@@ -163,6 +167,7 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
               headers: {
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
+                'Cache-Control': 'no-cache, no-store',
               },
               body: JSON.stringify({
                 imageBase64: base64String,
@@ -283,11 +288,12 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     setScanStep('processing');
 
     try {
+      const cacheBuster = `_t=${Date.now()}`;
       const candidateEndpoints = [
-        '/api/extract-shopee-screenshot',
-        `${window.location.origin}/api/extract-shopee-screenshot`,
-        '/api/extract-livestream-screenshot',
-        '/api/shopee-ocr',
+        `/api/extract-shopee-screenshot?${cacheBuster}`,
+        `${window.location.origin}/api/extract-shopee-screenshot?${cacheBuster}`,
+        `/api/extract-livestream-screenshot?${cacheBuster}`,
+        `/api/shopee-ocr?${cacheBuster}`,
       ];
 
       let res: Response | null = null;
@@ -300,6 +306,7 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
             headers: {
               'Content-Type': 'application/json',
               Accept: 'application/json',
+              'Cache-Control': 'no-cache, no-store',
             },
             body: JSON.stringify({
               imageBase64: uploadedImageSrc,
@@ -932,7 +939,9 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
             className="hidden"
             onChange={(e) => {
               if (e.target.files && e.target.files[0]) {
-                processImageFile(e.target.files[0]);
+                const pickedFile = e.target.files[0];
+                e.target.value = '';
+                processImageFile(pickedFile);
               }
             }}
           />

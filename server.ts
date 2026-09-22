@@ -22,27 +22,43 @@ function getAi(): GoogleGenAI {
   return aiClient;
 }
 
-// List of vision-capable models in priority fallback order
+// List of vision-capable models in priority order
 const CANDIDATE_VISION_MODELS = [
-  'gemini-2.5-flash',
   'gemini-3.8-flash',
   'gemini-flash-latest',
+  'gemini-2.5-flash',
   'gemini-3.1-flash-lite',
 ];
 
+/**
+ * Robust parser for Indonesian and English numeric strings:
+ * - Suffix multipliers: 'jt' / 'juta' (x1,000,000), 'rb' / 'ribu' / 'k' (x1,000), 'miliar' / 'b' (x1,000,000,000)
+ * - Dots as thousand separators (e.g. 626.084 -> 626084, 1.500.000 -> 1500000)
+ * - Commas as decimal separators (e.g. 6,7% -> 6.7, 12,5 jt -> 12500000)
+ * - Currency prefixes (Rp, IDR, $) and measurement units (pcs, %, etc.)
+ */
 function parseIndonesianNumber(val: any): number | null {
   if (val === null || val === undefined || val === '') return null;
   if (typeof val === 'number') return isNaN(val) ? null : val;
   if (typeof val === 'string') {
-    // If HH:MM:SS format (e.g. 00:00:20 or 01:15:00)
-    if (val.includes(':')) {
-      const parts = val.split(':').map((p) => parseInt(p.trim(), 10) || 0);
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
+    let s = val.trim();
+    if (!s || s === '-' || s.toLowerCase() === 'n/a' || s.toLowerCase() === 'null') return null;
+
+    // Detect multiplier suffixes before cleaning characters
+    let multiplier = 1;
+    if (/\b(?:miliar|b)\b/i.test(s)) {
+      multiplier = 1000000000;
+      s = s.replace(/\b(?:miliar|b)\b/gi, '');
+    } else if (/\b(?:jt|juta)\b/i.test(s) || /jt|juta/i.test(s) || (s.toLowerCase().endsWith('m') && !s.toLowerCase().endsWith('rpm'))) {
+      multiplier = 1000000;
+      s = s.replace(/\b(?:jt|juta)\b/gi, '').replace(/jt|juta/gi, '').replace(/m$/i, '');
+    } else if (/\b(?:rb|ribu|k)\b/i.test(s) || /rb|ribu/i.test(s) || s.toLowerCase().endsWith('k')) {
+      multiplier = 1000;
+      s = s.replace(/\b(?:rb|ribu|k)\b/gi, '').replace(/rb|ribu/gi, '').replace(/k$/i, '');
     }
 
-    // Clean strings like "Rp 626.084" or "6,7%" or "1.500 pcs"
-    let clean = val.replace(/Rp|\s|%|pcs|menit|detik/gi, '').trim();
+    // Clean currency prefixes, percentages, units and spaces
+    let clean = s.replace(/Rp\.?|IDR|\$|\s|%|pcs|unit|penonton|orang|pesanan|kali/gi, '').trim();
 
     // If both dot and comma exist e.g. 1.250.000,50
     if (clean.includes('.') && clean.includes(',')) {
@@ -51,7 +67,7 @@ function parseIndonesianNumber(val: any): number | null {
       // Indonesian decimal separator e.g. "6,7" -> "6.7"
       clean = clean.replace(',', '.');
     } else if (clean.includes('.')) {
-      // Could be thousand separator e.g. 626.084 or 3.948 or 158.583
+      // Distinguish thousand separator (e.g. 626.084 or 3.948) vs English decimal (e.g. 12.5)
       const parts = clean.split('.');
       if (parts.length > 1 && parts.every((p, idx) => idx === 0 || p.length === 3)) {
         clean = clean.replace(/\./g, '');
@@ -59,7 +75,59 @@ function parseIndonesianNumber(val: any): number | null {
     }
 
     const num = parseFloat(clean);
-    return isNaN(num) ? null : num;
+    if (isNaN(num)) return null;
+    return num * multiplier;
+  }
+  return null;
+}
+
+/**
+ * Robust duration parser:
+ * - Colon formats: "01:15:30" (4530s), "00:00:20" (20s), "02:45" (165s)
+ * - Indonesian natural text: "1 jam 20 menit 30 detik", "45 menit", "20 detik"
+ * - English text: "1h 20m 30s", "5 mins", "45 secs"
+ */
+function parseDurationSeconds(val: any): number | null {
+  if (val === null || val === undefined || val === '') return null;
+  if (typeof val === 'number') return isNaN(val) ? null : Math.round(val);
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (!s || s === '-' || s.toLowerCase() === 'n/a' || s.toLowerCase() === 'null') return null;
+
+    // Colon format (HH:MM:SS or MM:SS)
+    if (s.includes(':')) {
+      const parts = s.split(':').map((p) => parseInt(p.trim(), 10) || 0);
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+    }
+
+    // Textual duration formats
+    let totalSeconds = 0;
+    let matched = false;
+
+    const hoursMatch = s.match(/(\d+)\s*(?:jam|j|h|hours?)/i);
+    if (hoursMatch) {
+      totalSeconds += parseInt(hoursMatch[1], 10) * 3600;
+      matched = true;
+    }
+
+    const minsMatch = s.match(/(\d+)\s*(?:menit|mnt|m|mins?)/i);
+    if (minsMatch) {
+      totalSeconds += parseInt(minsMatch[1], 10) * 60;
+      matched = true;
+    }
+
+    const secsMatch = s.match(/(\d+)\s*(?:detik|dtk|d|s|secs?)/i);
+    if (secsMatch) {
+      totalSeconds += parseInt(secsMatch[1], 10);
+      matched = true;
+    }
+
+    if (matched) return totalSeconds;
+
+    // Plain numeric string fallback
+    const plainNum = parseInt(s.replace(/\D/g, ''), 10);
+    return isNaN(plainNum) ? null : plainNum;
   }
   return null;
 }
@@ -114,12 +182,20 @@ async function startServer() {
   // Extracts all 16 KPIs from Shopee Livestream Insight screenshot using Gemini Flash Vision
   // ZERO disk storage, ZERO permanent image holding. Buffer is discarded immediately.
   const handleScreenshotExtraction = async (req: express.Request, res: express.Response) => {
+    const extractId = `ext_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    
+    // Prevent any browser, reverse-proxy, or client caching
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     try {
       const { imageBase64, mimeType = 'image/jpeg' } = req.body;
 
       if (!imageBase64 || typeof imageBase64 !== 'string') {
         return res.status(400).json({
           success: false,
+          extractId,
           error: 'Gambar tidak ditemukan dalam request.',
           details: 'Pastikan file screenshot terkirim dalam format base64.',
         });
@@ -128,81 +204,102 @@ async function startServer() {
       // Clean base64 header if present (e.g. "data:image/jpeg;base64,")
       const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, '');
 
-      const prompt = `You are an expert AI vision system specialized in reading Indonesian e-commerce analytics dashboards, specifically "Wawasan Livestream" from Shopee Seller Centre / Shopee Live.
+      console.log(`[OCR ${extractId}] Received image payload (${cleanBase64.length} base64 chars, type: ${mimeType})`);
 
-Analyze this screenshot and extract all 16 Key Performance Indicators (KPIs) and the Order Status filter.
-Here is the visual mapping of the Shopee Wawasan Livestream dashboard:
-1. Header / Filter:
-   - "Wawasan Livestream"
-   - "Status Pesanan" (e.g., "Pesanan Siap Dikirim", "Semua", or other order status filter dropdown)
-2. Main Big Card:
-   - "Penjualan (Rp)" -> top large number in orange card. Indonesian dots are thousand separators (e.g., "626.084" means 626084).
-3. 3 Secondary Metrics:
-   - "Penonton Aktif" (e.g., "139" -> 139)
-   - "Komentar" (e.g., "39" -> 39)
-   - "Tambah ke Keranjang" (e.g., "105" -> 105)
-4. 12 Detailed Grid Metrics:
-   - "Dilihat" (e.g., "3.948" -> 3948)
-   - "Durasi Rata-Rata Menonton" (e.g., "00:00:20" -> 20 seconds as integer)
-   - "Persentase Komentar" (e.g., "1,0%" -> 1.0 as float percentage)
-   - "Penjualan per mil (Rp)" (e.g., "158.583" -> 158583)
-   - "Pesanan" (e.g., "15" -> 15)
-   - "Nilai Penjualan per Pesanan" (e.g., "41.739" -> 41739)
-   - "Penonton" (e.g., "3.341" -> 3341)
-   - "Penonton Tertinggi" (e.g., "32" -> 32)
-   - "Persentase Klik" (e.g., "6,7%" -> 6.7 as float percentage)
-   - "Pesanan per Klik" (e.g., "5,7%" -> 5.7 as float percentage)
-   - "Pembeli" (e.g., "15" -> 15)
-   - "Produk Terjual" (e.g., "25" -> 25)
+      const prompt = `You are a high-precision AI vision OCR system specialized in extracting metrics from e-commerce analytics dashboards, specifically Shopee Live / Shopee Seller Centre ("Wawasan Livestream" or mobile "Rincian Live").
 
-CRITICAL RULES FOR NUMERIC VALUES:
-- Read the EXACT numbers present on THIS specific uploaded screenshot image. Do NOT invent, hallucinate, or copy numbers from any other image.
-- Indonesian thousands use DOT (".") as separator: "626.084" MUST be the number 626084 (integer), NOT 626.084. "3.948" MUST be 3948.
-- Indonesian decimals use COMMA (","): "1,0%" MUST be 1.0. "6,7%" MUST be 6.7. "5,7%" MUST be 5.7.
-- Durations like "00:00:20" MUST be converted to integer total seconds: 20. If "01:10:30", convert to 1*3600 + 10*60 + 30 = 4230 seconds.
-- Every field value MUST be a numeric number (integer or float) or null if genuinely missing. DO NOT return strings with "Rp", "%", or thousand dots.
-- Also evaluate a confidence score between 0.00 and 1.00 for each field based on legibility and recognition certainty.
-- If date or time is visible anywhere on the screenshot (e.g. in status bar or dashboard date picker), populate extracted_date (YYYY-MM-DD) and extracted_time (HH:mm), otherwise return null.
+CRITICAL INSTRUCTIONS ON ZERO-HALLUCINATION & DYNAMIC EXTRACTION:
+1. Examine the ACTUAL VISIBLE pixels of THIS SPECIFIC image. Read the REAL numbers present on the screenshot.
+2. DO NOT output repetitive, cached, or default placeholder numbers under ANY circumstances.
+3. If a metric or card is NOT visible, cropped out, covered, or absent in this screenshot, you MUST set its value to null and confidence to 0.0. DO NOT guess or infer numbers that are not visually printed.
 
-You MUST return a JSON object strictly matching this schema:
+LAYOUT & FIELD MAPPING (Handles Desktop Grid, Mobile App Cards, Dark & Light Mode, Indonesian & English):
+Shopee layouts vary. Match the text labels on the image to the following target fields:
+
+- sales: Primary Gross Merchandise Value / revenue.
+  Look for: "Penjualan (Rp)", "Total Penjualan", "Estimasi Penjualan", "Pendapatan", "Sales (Rp)", "GMV".
+- active_viewers: Active or concurrent viewers during stream.
+  Look for: "Penonton Aktif", "Penonton Saat Ini", "Penonton Bersamaan", "Active Viewers", "Concurrent Viewers".
+- comments: Number of comments/chat messages sent.
+  Look for: "Komentar", "Jumlah Komentar", "Total Komentar", "Comments".
+- add_to_cart: Items or actions added to cart/basket.
+  Look for: "Tambah ke Keranjang", "Dimasukkan ke Keranjang", "Keranjang", "Add to Cart", "ATC".
+- views: Total impressions or live stream views.
+  Look for: "Dilihat", "Total Dilihat", "Tayangan", "Impresi", "Views", "Impressions".
+- average_watch_duration: Average duration viewers spent watching. Can be "HH:MM:SS", "MM:SS", or text like "X mnt Y dtk" or seconds.
+  Look for: "Durasi Rata-Rata Menonton", "Rata-rata Durasi Tonton", "Durasi Tontonan", "Average Watch Duration", "Avg Watch Time".
+- comment_rate: Percentage of viewers who commented.
+  Look for: "Persentase Komentar", "Tingkat Komentar", "Comment Rate", "Rasio Komentar".
+- sales_per_1000_views: Sales generated per 1,000 views (RPM).
+  Look for: "Penjualan per mil (Rp)", "Penjualan per 1.000 Tayangan", "RPM", "Sales per 1000 Views".
+- orders: Total orders placed.
+  Look for: "Pesanan", "Total Pesanan", "Jumlah Pesanan", "Orders".
+- sales_per_order: Average order value / basket size (AOV).
+  Look for: "Nilai Penjualan per Pesanan", "Rata-rata Nilai Pesanan", "AOV", "Sales per Order".
+- viewers: Total unique viewers or cumulative audience.
+  Look for: "Penonton", "Total Penonton", "Penonton Unik", "Viewers", "Unique Viewers".
+- peak_viewers: Peak concurrent viewers.
+  Look for: "Penonton Tertinggi", "Puncak Penonton", "Penonton Maksimum", "Peak Viewers", "Max Viewers".
+- click_rate: Product / showcase click-through rate percentage (CTR).
+  Look for: "Persentase Klik", "Tingkat Klik", "CTR", "Click Rate".
+- orders_per_click: Conversion rate percentage from product click to purchase.
+  Look for: "Pesanan per Klik", "Konversi Klik ke Pesanan", "Orders per Click".
+- buyers: Unique paying buyers/customers.
+  Look for: "Pembeli", "Total Pembeli", "Jumlah Pembeli", "Buyers".
+- products_sold: Total units or products sold.
+  Look for: "Produk Terjual", "Barang Terjual", "Unit Terjual", "Products Sold", "Qty Terjual".
+
+ADDITIONAL METADATA:
+- order_status: Look for an active order filter dropdown/text (e.g. "Pesanan Siap Dikirim", "Semua", "Pesanan Dikonfirmasi", "Pesanan Selesai"). If not found, output "Pesanan Siap Dikirim".
+- extracted_date: Look for a visible date on the header, filter, or phone status bar (e.g., "21 Sep 2026", "21/09/2026", "2026-09-21"). Format as "YYYY-MM-DD" if clearly found, otherwise null.
+- extracted_time: Look for a visible time on the stream banner, filter, or phone status bar (e.g., "08:27", "14:30"). Format as "HH:mm" if clearly found, otherwise null.
+
+NUMBER & FORMAT CONVERSIONS:
+- Indonesian thousands dot: convert "626.084" -> 626084, "3.948" -> 3948.
+- Indonesian decimal comma: convert "6,7%" -> 6.7, "1,0%" -> 1.0, "5,7%" -> 5.7.
+- Indonesian/English multipliers: "1,5 jt" -> 1500000, "15 rb" -> 15000.
+- For each metric, return a confidence score between 0.00 and 1.00 indicating visual certainty (0.0 if not on screen).
+
+OUTPUT FORMAT:
+Respond with ONLY a raw JSON object matching this exact schema:
 {
   "platform": "shopee",
-  "order_status": string or null,
-  "sales": number or null,
-  "active_viewers": number or null,
-  "comments": number or null,
-  "add_to_cart": number or null,
-  "views": number or null,
-  "average_watch_duration": number or null,
-  "comment_rate": number or null,
-  "sales_per_1000_views": number or null,
-  "orders": number or null,
-  "sales_per_order": number or null,
-  "viewers": number or null,
-  "peak_viewers": number or null,
-  "click_rate": number or null,
-  "orders_per_click": number or null,
-  "buyers": number or null,
-  "products_sold": number or null,
-  "extracted_date": string or null,
-  "extracted_time": string or null,
+  "order_status": string,
+  "sales": number | null,
+  "active_viewers": number | null,
+  "comments": number | null,
+  "add_to_cart": number | null,
+  "views": number | null,
+  "average_watch_duration": number | string | null,
+  "comment_rate": number | null,
+  "sales_per_1000_views": number | null,
+  "orders": number | null,
+  "sales_per_order": number | null,
+  "viewers": number | null,
+  "peak_viewers": number | null,
+  "click_rate": number | null,
+  "orders_per_click": number | null,
+  "buyers": number | null,
+  "products_sold": number | null,
+  "extracted_date": string | null,
+  "extracted_time": string | null,
   "confidence": {
-    "sales": number between 0 and 1,
-    "active_viewers": number between 0 and 1,
-    "comments": number between 0 and 1,
-    "add_to_cart": number between 0 and 1,
-    "views": number between 0 and 1,
-    "average_watch_duration": number between 0 and 1,
-    "comment_rate": number between 0 and 1,
-    "sales_per_1000_views": number between 0 and 1,
-    "orders": number between 0 and 1,
-    "sales_per_order": number between 0 and 1,
-    "viewers": number between 0 and 1,
-    "peak_viewers": number between 0 and 1,
-    "click_rate": number between 0 and 1,
-    "orders_per_click": number between 0 and 1,
-    "buyers": number between 0 and 1,
-    "products_sold": number between 0 and 1
+    "sales": number,
+    "active_viewers": number,
+    "comments": number,
+    "add_to_cart": number,
+    "views": number,
+    "average_watch_duration": number,
+    "comment_rate": number,
+    "sales_per_1000_views": number,
+    "orders": number,
+    "sales_per_order": number,
+    "viewers": number,
+    "peak_viewers": number,
+    "click_rate": number,
+    "orders_per_click": number,
+    "buyers": number,
+    "products_sold": number
   }
 }`;
 
@@ -214,7 +311,7 @@ You MUST return a JSON object strictly matching this schema:
       // Try candidate models in order until one succeeds
       for (const modelName of CANDIDATE_VISION_MODELS) {
         try {
-          console.log(`[OCR] Trying model ${modelName}...`);
+          console.log(`[OCR ${extractId}] Trying vision model ${modelName}...`);
           const response = await ai.models.generateContent({
             model: modelName,
             contents: [
@@ -233,20 +330,19 @@ You MUST return a JSON object strictly matching this schema:
             ],
             config: {
               responseMimeType: 'application/json',
-              temperature: 0.1,
+              temperature: 0.0,
             },
           });
 
           if (response && response.text) {
             rawResponseText = response.text;
             successfulModel = modelName;
-            console.log(`[OCR] Successfully processed with model ${modelName}`);
+            console.log(`[OCR ${extractId}] Successfully received vision response from ${modelName}`);
             break;
           }
         } catch (modelErr: any) {
-          console.warn(`[OCR] Model ${modelName} failed:`, modelErr?.message || modelErr);
+          console.warn(`[OCR ${extractId}] Model ${modelName} error:`, modelErr?.message || modelErr);
           lastError = modelErr;
-          // Continue to next model in list
         }
       }
 
@@ -266,7 +362,7 @@ You MUST return a JSON object strictly matching this schema:
 
       const parsedData = JSON.parse(cleanJson);
 
-      // Normalize all numeric fields using parseIndonesianNumber
+      // Normalize all numeric fields using enhanced parsers
       const normalizedData = {
         platform: 'shopee',
         order_status: parsedData.order_status || 'Pesanan Siap Dikirim',
@@ -275,7 +371,7 @@ You MUST return a JSON object strictly matching this schema:
         comments: parseIndonesianNumber(parsedData.comments),
         add_to_cart: parseIndonesianNumber(parsedData.add_to_cart),
         views: parseIndonesianNumber(parsedData.views),
-        average_watch_duration: parseIndonesianNumber(parsedData.average_watch_duration),
+        average_watch_duration: parseDurationSeconds(parsedData.average_watch_duration),
         comment_rate: parseIndonesianNumber(parsedData.comment_rate),
         sales_per_1000_views: parseIndonesianNumber(parsedData.sales_per_1000_views),
         orders: parseIndonesianNumber(parsedData.orders),
@@ -289,36 +385,48 @@ You MUST return a JSON object strictly matching this schema:
         extracted_date: parsedData.extracted_date || null,
         extracted_time: parsedData.extracted_time || null,
         confidence: {
-          sales: parsedData.confidence?.sales ?? 0.95,
-          active_viewers: parsedData.confidence?.active_viewers ?? 0.95,
-          comments: parsedData.confidence?.comments ?? 0.95,
-          add_to_cart: parsedData.confidence?.add_to_cart ?? 0.95,
-          views: parsedData.confidence?.views ?? 0.95,
-          average_watch_duration: parsedData.confidence?.average_watch_duration ?? 0.95,
-          comment_rate: parsedData.confidence?.comment_rate ?? 0.95,
-          sales_per_1000_views: parsedData.confidence?.sales_per_1000_views ?? 0.95,
-          orders: parsedData.confidence?.orders ?? 0.95,
-          sales_per_order: parsedData.confidence?.sales_per_order ?? 0.95,
-          viewers: parsedData.confidence?.viewers ?? 0.95,
-          peak_viewers: parsedData.confidence?.peak_viewers ?? 0.95,
-          click_rate: parsedData.confidence?.click_rate ?? 0.95,
-          orders_per_click: parsedData.confidence?.orders_per_click ?? 0.95,
-          buyers: parsedData.confidence?.buyers ?? 0.95,
-          products_sold: parsedData.confidence?.products_sold ?? 0.95,
+          sales: typeof parsedData.confidence?.sales === 'number' ? parsedData.confidence.sales : 0.95,
+          active_viewers: typeof parsedData.confidence?.active_viewers === 'number' ? parsedData.confidence.active_viewers : 0.95,
+          comments: typeof parsedData.confidence?.comments === 'number' ? parsedData.confidence.comments : 0.95,
+          add_to_cart: typeof parsedData.confidence?.add_to_cart === 'number' ? parsedData.confidence.add_to_cart : 0.95,
+          views: typeof parsedData.confidence?.views === 'number' ? parsedData.confidence.views : 0.95,
+          average_watch_duration: typeof parsedData.confidence?.average_watch_duration === 'number' ? parsedData.confidence.average_watch_duration : 0.95,
+          comment_rate: typeof parsedData.confidence?.comment_rate === 'number' ? parsedData.confidence.comment_rate : 0.95,
+          sales_per_1000_views: typeof parsedData.confidence?.sales_per_1000_views === 'number' ? parsedData.confidence.sales_per_1000_views : 0.95,
+          orders: typeof parsedData.confidence?.orders === 'number' ? parsedData.confidence.orders : 0.95,
+          sales_per_order: typeof parsedData.confidence?.sales_per_order === 'number' ? parsedData.confidence.sales_per_order : 0.95,
+          viewers: typeof parsedData.confidence?.viewers === 'number' ? parsedData.confidence.viewers : 0.95,
+          peak_viewers: typeof parsedData.confidence?.peak_viewers === 'number' ? parsedData.confidence.peak_viewers : 0.95,
+          click_rate: typeof parsedData.confidence?.click_rate === 'number' ? parsedData.confidence.click_rate : 0.95,
+          orders_per_click: typeof parsedData.confidence?.orders_per_click === 'number' ? parsedData.confidence.orders_per_click : 0.95,
+          buyers: typeof parsedData.confidence?.buyers === 'number' ? parsedData.confidence.buyers : 0.95,
+          products_sold: typeof parsedData.confidence?.products_sold === 'number' ? parsedData.confidence.products_sold : 0.95,
         },
         modelUsed: successfulModel,
       };
 
+      console.log(`[OCR ${extractId}] Extracted dynamic metrics:`, {
+        sales: normalizedData.sales,
+        orders: normalizedData.orders,
+        viewers: normalizedData.viewers,
+        products_sold: normalizedData.products_sold,
+        status: normalizedData.order_status,
+        date: normalizedData.extracted_date,
+        time: normalizedData.extracted_time,
+      });
+
       // Return strict structured JSON
       return res.json({
         success: true,
+        extractId,
         data: normalizedData,
         modelUsed: successfulModel,
       });
     } catch (err: any) {
-      console.error('Error in /api/extract-shopee-screenshot:', err);
+      console.error(`[OCR ${extractId}] Error in /api/extract-shopee-screenshot:`, err);
       return res.status(500).json({
         success: false,
+        extractId,
         error: err.message || 'Gagal mengekstrak data dari screenshot Shopee.',
       });
     }
