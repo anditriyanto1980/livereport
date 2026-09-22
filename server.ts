@@ -3,11 +3,18 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import multer from 'multer';
 
 dotenv.config();
 
 // Safe directory path for both ESM (dev) and CommonJS (bundled production)
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+
+// In-memory multer storage: ZERO disk storage, zero permanent image holding
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB limit
+});
 
 // Lazy Gemini AI initialization to prevent crashing if key is missing
 let aiClient: GoogleGenAI | null = null;
@@ -190,19 +197,61 @@ async function startServer() {
     res.setHeader('Expires', '0');
 
     try {
-      const { imageBase64, mimeType = 'image/jpeg' } = req.body;
+      let cleanBase64 = '';
+      let mimeType = 'image/jpeg';
 
-      if (!imageBase64 || typeof imageBase64 !== 'string') {
+      // 1. Check if uploaded via multipart/form-data (multer)
+      const anyReq = req as any;
+      if (anyReq.file && anyReq.file.buffer) {
+        cleanBase64 = anyReq.file.buffer.toString('base64');
+        mimeType = anyReq.file.mimetype || 'image/jpeg';
+      } else if (anyReq.files && Array.isArray(anyReq.files) && anyReq.files.length > 0 && anyReq.files[0].buffer) {
+        cleanBase64 = anyReq.files[0].buffer.toString('base64');
+        mimeType = anyReq.files[0].mimetype || 'image/jpeg';
+      } else {
+        // 2. Check JSON / URL-encoded body
+        let rawImage =
+          req.body?.imageBase64 ||
+          req.body?.image ||
+          req.body?.file ||
+          req.body?.screenshot ||
+          req.body?.image_base64 ||
+          req.body?.data;
+
+        if (typeof rawImage === 'object' && rawImage !== null) {
+          mimeType = rawImage.type || rawImage.mimeType || mimeType;
+          rawImage = rawImage.data || rawImage.base64 || rawImage.content;
+        }
+
+        if (typeof rawImage === 'string' && rawImage.trim()) {
+          const match = rawImage.match(/^data:([^;]+);base64,/);
+          if (match) {
+            mimeType = match[1];
+          }
+          cleanBase64 = rawImage.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
+        }
+
+        if (req.body?.mimeType) {
+          mimeType = req.body.mimeType;
+        }
+      }
+
+      if (!cleanBase64) {
         return res.status(400).json({
           success: false,
           extractId,
-          error: 'Gambar tidak ditemukan dalam request.',
-          details: 'Pastikan file screenshot terkirim dalam format base64.',
+          error: 'Format screenshot atau data upload tidak valid (HTTP 400).',
+          details: 'Gambar tidak ditemukan dalam request (dukungan: base64 JSON atau multipart file upload).',
         });
       }
 
-      // Clean base64 header if present (e.g. "data:image/jpeg;base64,")
-      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, '');
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(500).json({
+          success: false,
+          extractId,
+          error: 'Autentikasi OCR gagal: Kunci API Gemini (GEMINI_API_KEY) belum dikonfigurasi.',
+        });
+      }
 
       console.log(`[OCR ${extractId}] Received image payload (${cleanBase64.length} base64 chars, type: ${mimeType})`);
 
@@ -415,51 +464,85 @@ Respond with ONLY a raw JSON object matching this exact schema:
         time: normalizedData.extracted_time,
       });
 
-      // Return strict structured JSON
+      // Calculate overall average confidence score
+      const confValues = Object.values(normalizedData.confidence).filter(
+        (v) => typeof v === 'number'
+      ) as number[];
+      const overallConfidence =
+        confValues.length > 0
+          ? Number((confValues.reduce((a, b) => a + b, 0) / confValues.length).toFixed(2))
+          : 0.95;
+
+      // Return strict structured JSON matching frontend schema requirements
       return res.json({
         success: true,
         extractId,
         data: normalizedData,
+        rawText: cleanJson,
+        confidence: overallConfidence,
         modelUsed: successfulModel,
       });
     } catch (err: any) {
-      console.error(`[OCR ${extractId}] Error in /api/extract-shopee-screenshot:`, err);
-      return res.status(500).json({
+      console.error(`[OCR ${extractId}] Error in OCR processing:`, err);
+      const isQuota =
+        err?.status === 429 ||
+        err?.message?.includes('429') ||
+        err?.message?.includes('RESOURCE_EXHAUSTED') ||
+        err?.message?.includes('quota');
+      const statusCode = isQuota ? 429 : 500;
+      const errorMsg = isQuota
+        ? 'Layanan OCR sedang mencapai batas penggunaan. Silakan coba beberapa saat lagi (HTTP 429).'
+        : err.message || 'Terjadi kesalahan pada server OCR saat mengekstrak data dari screenshot.';
+
+      return res.status(statusCode).json({
         success: false,
         extractId,
-        error: err.message || 'Gagal mengekstrak data dari screenshot Shopee.',
+        error: errorMsg,
       });
     }
   };
 
-  // Status probe endpoint for screenshot extraction
-  app.get(['/api/extract-shopee-screenshot', '/api/extract-shopee-screenshot/'], (req, res) => {
-    res.json({
-      status: 'ready',
-      message: 'Shopee Screenshot Extraction API is active and ready for POST requests.',
-      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
-    });
-  });
+  // Comprehensive OCR route list covering canonical endpoints and all aliases
+  const OCR_ROUTES = [
+    '/api/ocr',
+    '/api/ocr/process',
+    '/api/ocr/analyze',
+    '/api/scan',
+    '/api/extract',
+    '/api/extract-shopee-screenshot',
+    '/api/extract-livestream-screenshot',
+    '/api/shopee-ocr',
+    '/extract-shopee-screenshot',
+  ];
 
-  // Mount screenshot extraction routes with multiple aliases
-  app.post('/api/extract-shopee-screenshot', handleScreenshotExtraction);
-  app.post('/api/extract-shopee-screenshot/', handleScreenshotExtraction);
-  app.post('/api/extract-livestream-screenshot', handleScreenshotExtraction);
-  app.post('/api/extract-livestream-screenshot/', handleScreenshotExtraction);
-  app.post('/api/shopee-ocr', handleScreenshotExtraction);
-  app.post('/api/shopee-ocr/', handleScreenshotExtraction);
-  app.post('/api/ocr', handleScreenshotExtraction);
-  app.post('/api/ocr/', handleScreenshotExtraction);
-  app.post('/extract-shopee-screenshot', handleScreenshotExtraction);
+  // Register GET probe endpoints and POST execution routes with multer support
+  OCR_ROUTES.forEach((route) => {
+    // GET probe endpoint
+    app.get([route, `${route}/`], (req, res) => {
+      res.json({
+        status: 'ready',
+        endpoint: route,
+        method: 'POST',
+        description: 'Shopee Livestream OCR & KPI Extraction API',
+        supportedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+        hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+      });
+    });
+
+    // POST execution route (accepts both JSON base64 and multipart/form-data)
+    app.post([route, `${route}/`], upload.any(), handleScreenshotExtraction);
+  });
 
   // Catch-all for unhandled /api/* routes (ALWAYS return JSON 404, never fallback to HTML)
   app.all('/api/*', (req, res) => {
     res.status(404).json({
       success: false,
-      error: `Endpoint API ${req.method} ${req.path} tidak ditemukan pada server.`,
+      error: `Endpoint OCR tidak ditemukan. Periksa konfigurasi server OCR (HTTP 404 pada ${req.method} ${req.path}).`,
       availableEndpoints: [
+        'POST /api/ocr',
         'POST /api/extract-shopee-screenshot',
-        'GET /api/extract-shopee-screenshot',
+        'POST /api/scan',
+        'GET /api/ocr',
         'GET /api/health',
       ],
     });

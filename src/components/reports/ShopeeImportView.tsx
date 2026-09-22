@@ -21,6 +21,7 @@ import {
   Zap,
   ZoomIn,
   X,
+  Check,
   Image as ImageIcon,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -68,6 +69,8 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [scanStep, setScanStep] = useState<ScanStep>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isProcessingOCR, setIsProcessingOCR] = useState<boolean>(false);
+  const [ocrProgressStep, setOcrProgressStep] = useState<number>(0);
 
   // Uploaded image metadata & preview
   const [uploadedImageSrc, setUploadedImageSrc] = useState<string | null>(null);
@@ -117,15 +120,43 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     return validateShopeeKpis(currentDataToValidate);
   }, [currentDataToValidate]);
 
-  // Handle file selection (Drag or Click)
-  const processImageFile = async (file: File) => {
-    if (!file) return;
+  // Helper to map HTTP status codes to informative messages
+  const getOcrErrorMessage = (status: number | undefined, detailMsg?: string): string => {
+    switch (status) {
+      case 404:
+        return 'Endpoint OCR tidak ditemukan. Periksa konfigurasi server OCR (HTTP 404).';
+      case 400:
+        return detailMsg || 'Format screenshot atau data upload tidak valid (HTTP 400).';
+      case 401:
+        return 'Autentikasi OCR diperlukan (HTTP 401).';
+      case 403:
+        return 'Akses ke layanan OCR ditolak (HTTP 403).';
+      case 413:
+        return 'Ukuran screenshot terlalu besar (maksimal 30MB) (HTTP 413).';
+      case 429:
+        return 'Layanan OCR sedang mencapai batas penggunaan. Silakan coba beberapa saat lagi (HTTP 429).';
+      case 500:
+      case 502:
+      case 503:
+        return detailMsg || `Terjadi kesalahan pada server OCR (HTTP ${status || 500}).`;
+      default:
+        return detailMsg || 'Tidak dapat terhubung ke layanan OCR. Periksa koneksi atau konfigurasi server.';
+    }
+  };
 
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setErrorMessage('Format file tidak didukung. Harap upload gambar JPG, JPEG, atau PNG.');
+  // Consolidated OCR Execution Engine with step-by-step progress & debug logging
+  const executeOcr = async (base64String: string, fileName: string, fileType: string) => {
+    if (isProcessingOCR) {
+      console.warn('[OCR] Duplicate request ignored: OCR is already processing.');
       return;
     }
 
+    if (!base64String) {
+      setErrorMessage('Screenshot sudah tidak tersedia. Silakan upload screenshot kembali.');
+      return;
+    }
+
+    setIsProcessingOCR(true);
     setErrorMessage(null);
     setSaveSuccessMsg(null);
     setDuplicateWarning(null);
@@ -134,170 +165,28 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     setEditedData({});
     setIsEditing(false);
 
-    setUploadedFileName(file.name);
-    setUploadedFileSize((file.size / 1024).toFixed(1) + ' KB');
-    setUploadedFileType(file.type);
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64String = reader.result as string;
-      setUploadedImageSrc(base64String);
-
-      try {
-        setScanStep('reading');
-        await new Promise((r) => setTimeout(r, 400));
-
-        setScanStep('processing');
-        // Multi-candidate endpoint retry mechanism with cache-busting timestamp
-        const cacheBuster = `_t=${Date.now()}`;
-        const candidateEndpoints = [
-          `/api/extract-shopee-screenshot?${cacheBuster}`,
-          `${window.location.origin}/api/extract-shopee-screenshot?${cacheBuster}`,
-          `/api/extract-livestream-screenshot?${cacheBuster}`,
-          `/api/shopee-ocr?${cacheBuster}`,
-        ];
-
-        let res: Response | null = null;
-        let lastError = '';
-
-        for (const endpoint of candidateEndpoints) {
-          try {
-            res = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                'Cache-Control': 'no-cache, no-store',
-              },
-              body: JSON.stringify({
-                imageBase64: base64String,
-                mimeType: file.type || 'image/jpeg',
-              }),
-            });
-
-            if (res.ok) {
-              break;
-            }
-
-            // If 404 on this endpoint, try next alias
-            if (res.status === 404) {
-              const errData = await res.json().catch(() => ({}));
-              lastError = errData.error || `Endpoint ${endpoint} merespon 404`;
-              continue;
-            }
-
-            // If 502/503 cold start, pause briefly and retry once on this endpoint
-            if (res.status === 502 || res.status === 503) {
-              await new Promise((r) => setTimeout(r, 1200));
-              const retryRes = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Accept: 'application/json',
-                },
-                body: JSON.stringify({
-                  imageBase64: base64String,
-                  mimeType: file.type || 'image/jpeg',
-                }),
-              });
-              if (retryRes.ok) {
-                res = retryRes;
-                break;
-              }
-            }
-
-            const errJson = await res.json().catch(() => ({}));
-            lastError = errJson.error || `Server merespon error (${res.status})`;
-            break;
-          } catch (netErr: any) {
-            lastError = netErr.message || 'Koneksi ke endpoint terputus';
-          }
-        }
-
-        if (!res || !res.ok) {
-          if (res?.status === 404) {
-            throw new Error(
-              'Layanan backend OCR sedang dalam proses sinkronisasi rute server (HTTP 404). Silakan klik "Coba Scan Ulang AI" di bawah atau klik "Input Manual dengan Screenshot di Samping" untuk melihat gambar sambil mengisi data.'
-            );
-          }
-          throw new Error(lastError || 'Gagal memproses gambar. Silakan klik tombol Coba Scan Ulang AI.');
-        }
-
-        const json = await res.json().catch(() => ({}));
-
-        if (!json.success || !json.data) {
-          throw new Error(json.error || `Gagal mengekstrak data dari screenshot.`);
-        }
-
-        const parsedResult: ShopeeRawExtractedData = {
-          ...json.data,
-          isDemo: false,
-        };
-        const usedAi = json.modelUsed || 'AI Vision';
-        setModelUsed(usedAi);
-
-        setScanStep('validating');
-        await new Promise((r) => setTimeout(r, 300));
-
-        // Update states with REAL extracted data from the user's uploaded image
-        setExtractedData(parsedResult);
-        setEditedData(parsedResult);
-        if (parsedResult.order_status) setOrderStatus(parsedResult.order_status);
-        if (parsedResult.extracted_date) setSessionDate(parsedResult.extracted_date);
-        if (parsedResult.extracted_time) setSessionTime(parsedResult.extracted_time);
-
-        // Check for duplicate in existing sessions
-        const dup = findDuplicateSession(
-          {
-            host_id: selectedStreamerId,
-            session_date: parsedResult.extracted_date || sessionDate,
-            sales: parsedResult.sales || 0,
-            orders: parsedResult.orders || 0,
-            views: parsedResult.views || 0,
-            products_sold: parsedResult.products_sold || 0,
-          },
-          sessions
-        );
-
-        if (dup) {
-          setDuplicateWarning({
-            isDuplicate: true,
-            existingSession: dup,
-          });
-        }
-
-        setScanStep('preview');
-      } catch (err: any) {
-        console.error('Extraction error:', err);
-        setErrorMessage(
-          err.message || 'AI Vision gagal membaca angka dari gambar ini. Anda dapat mencoba scan ulang atau mengisi data manual dengan screenshot tetap tampil di samping.'
-        );
-        setScanStep('idle');
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    };
-
-    reader.readAsDataURL(file);
-  };
-
-  // Retry scan on the already uploaded image
-  const handleRetryScan = async () => {
-    if (!uploadedImageSrc) return;
-    setErrorMessage(null);
-    setScanStep('processing');
-
     try {
-      const cacheBuster = `_t=${Date.now()}`;
+      // Step 1: Membaca screenshot
+      setOcrProgressStep(1);
+      setScanStep('reading');
+      console.log('[OCR] Upload started');
+      console.log('[OCR] File:', fileName, `(${fileType})`);
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Step 2: Mengirim ke AI OCR
+      setOcrProgressStep(2);
+      setScanStep('processing');
       const candidateEndpoints = [
-        `/api/extract-shopee-screenshot?${cacheBuster}`,
-        `${window.location.origin}/api/extract-shopee-screenshot?${cacheBuster}`,
-        `/api/extract-livestream-screenshot?${cacheBuster}`,
-        `/api/shopee-ocr?${cacheBuster}`,
+        '/api/ocr',
+        '/api/extract-shopee-screenshot',
+        '/api/scan',
       ];
+      console.log('[OCR] Request URL:', candidateEndpoints[0]);
+      console.log('[OCR] Method: POST');
 
       let res: Response | null = null;
-      let lastError = '';
+      let lastStatus: number | undefined = undefined;
+      let lastErrorMessage = '';
 
       for (const endpoint of candidateEndpoints) {
         try {
@@ -309,80 +198,143 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
               'Cache-Control': 'no-cache, no-store',
             },
             body: JSON.stringify({
-              imageBase64: uploadedImageSrc,
-              mimeType: uploadedFileType || 'image/jpeg',
+              imageBase64: base64String,
+              mimeType: fileType || 'image/jpeg',
             }),
           });
+
+          lastStatus = res.status;
+          console.log(`[OCR] Response status from ${endpoint}:`, res.status);
 
           if (res.ok) {
             break;
           }
 
           if (res.status === 404) {
-            const errData = await res.json().catch(() => ({}));
-            lastError = errData.error || `Endpoint ${endpoint} merespon 404`;
-            continue;
-          }
-
-          if (res.status === 502 || res.status === 503) {
-            await new Promise((r) => setTimeout(r, 1200));
-            const retryRes = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-              },
-              body: JSON.stringify({
-                imageBase64: uploadedImageSrc,
-                mimeType: uploadedFileType || 'image/jpeg',
-              }),
-            });
-            if (retryRes.ok) {
-              res = retryRes;
-              break;
-            }
+            continue; // try next candidate
           }
 
           const errJson = await res.json().catch(() => ({}));
-          lastError = errJson.error || `Server merespon error (${res.status})`;
+          lastErrorMessage = errJson.error || errJson.details || '';
           break;
         } catch (netErr: any) {
-          lastError = netErr.message || 'Koneksi ke endpoint terputus';
+          console.error(`[OCR] Network failure on ${endpoint}:`, netErr);
+          lastErrorMessage = netErr.message || '';
         }
       }
 
       if (!res || !res.ok) {
-        if (res?.status === 404) {
-          throw new Error(
-            'Layanan backend OCR sedang dalam proses sinkronisasi rute server (HTTP 404). Silakan coba lagi sebentar lagi atau gunakan "Input Manual dengan Screenshot di Samping".'
-          );
-        }
-        throw new Error(lastError || 'Gagal membaca gambar saat dicoba ulang.');
+        throw {
+          status: lastStatus,
+          message: getOcrErrorMessage(lastStatus, lastErrorMessage),
+        };
       }
 
+      // Step 3: Menganalisis data
+      setOcrProgressStep(3);
       const json = await res.json().catch(() => ({}));
+      console.log('[OCR] Response:', json);
 
       if (!json.success || !json.data) {
-        throw new Error(json.error || `Gagal membaca gambar saat dicoba ulang.`);
+        throw {
+          status: 422,
+          message: json.error || 'Gagal mengekstrak data dari screenshot Shopee.',
+        };
       }
+
+      // Step 4: Memetakan data
+      setOcrProgressStep(4);
+      setScanStep('validating');
+      await new Promise((r) => setTimeout(r, 250));
 
       const parsedResult: ShopeeRawExtractedData = {
         ...json.data,
         isDemo: false,
       };
-      setModelUsed(json.modelUsed || 'AI Vision');
+      console.log('[OCR] Parsed data:', parsedResult);
 
+      const usedAi = json.modelUsed || 'AI Vision';
+      setModelUsed(usedAi);
+
+      // Map to form state
       setExtractedData(parsedResult);
       setEditedData(parsedResult);
       if (parsedResult.order_status) setOrderStatus(parsedResult.order_status);
       if (parsedResult.extracted_date) setSessionDate(parsedResult.extracted_date);
       if (parsedResult.extracted_time) setSessionTime(parsedResult.extracted_time);
 
+      // Step 5: Selesai
+      setOcrProgressStep(5);
+
+      // Check duplicates
+      const dup = findDuplicateSession(
+        {
+          host_id: selectedStreamerId,
+          session_date: parsedResult.extracted_date || sessionDate,
+          sales: parsedResult.sales || 0,
+          orders: parsedResult.orders || 0,
+          views: parsedResult.views || 0,
+          products_sold: parsedResult.products_sold || 0,
+        },
+        sessions
+      );
+
+      if (dup) {
+        setDuplicateWarning({
+          isDuplicate: true,
+          existingSession: dup,
+        });
+      }
+
       setScanStep('preview');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Gagal memproses gambar saat dicoba ulang.');
+      console.error('[OCR Error]:', err);
+      const msg =
+        err?.message || (typeof err === 'string' ? err : 'Terjadi kesalahan pada layanan OCR.');
+      setErrorMessage(msg);
       setScanStep('idle');
+      setOcrProgressStep(0);
+    } finally {
+      setIsProcessingOCR(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  // Handle file selection (Drag or Click)
+  const processImageFile = async (file: File) => {
+    if (isProcessingOCR) return;
+    if (!file) return;
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setErrorMessage('Format file tidak didukung. Harap upload gambar JPG, JPEG, PNG, atau WEBP.');
+      return;
+    }
+
+    setUploadedFileName(file.name);
+    setUploadedFileSize((file.size / 1024).toFixed(1) + ' KB');
+    setUploadedFileType(file.type);
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64String = reader.result as string;
+      setUploadedImageSrc(base64String);
+      await executeOcr(base64String, file.name, file.type);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Retry scan on the already uploaded image
+  const handleRetryScan = async () => {
+    if (isProcessingOCR) return;
+    if (!uploadedImageSrc) {
+      setErrorMessage('Screenshot sudah tidak tersedia. Silakan upload screenshot kembali.');
+      return;
+    }
+    await executeOcr(
+      uploadedImageSrc,
+      uploadedFileName || 'screenshot-retry.png',
+      uploadedFileType || 'image/jpeg'
+    );
   };
 
   // Open manual input with the uploaded screenshot displayed side-by-side
@@ -636,16 +588,24 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     }
   };
 
-  // Helper for confidence badge
+  // Helper for confidence badge per Section 13
   const renderConfidenceBadge = (confidence?: number) => {
     if (confidence === undefined || confidence === null) return null;
     const pct = Math.round(confidence * 100);
-    let color = 'text-emerald-700 bg-emerald-100 border-emerald-300';
-    if (confidence < 0.8) color = 'text-amber-700 bg-amber-100 border-amber-300';
-    if (confidence < 0.5) color = 'text-red-700 bg-red-100 border-red-300';
+
+    // Flag low confidence under 0.70 as "Perlu Verifikasi"
+    if (confidence < 0.7) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+          <AlertCircle className="w-3 h-3 text-amber-600" />
+          Perlu Verifikasi ({pct}%)
+        </span>
+      );
+    }
 
     return (
-      <span className={`inline-flex items-center text-[10px] font-extrabold px-1.5 py-0.5 rounded border ${color}`}>
+      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded border border-emerald-300 text-emerald-700 bg-emerald-50">
+        <Check className="w-3 h-3 text-emerald-600" />
         {pct}%
       </span>
     );
@@ -704,11 +664,12 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
             <div className="pt-2 border-t border-red-200/80 flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                disabled={isProcessingOCR}
                 onClick={handleRetryScan}
-                className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer flex items-center gap-1.5 transition-all"
+                className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer flex items-center gap-1.5 transition-all disabled:opacity-50"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Coba Scan Ulang AI
+                <RefreshCw className={`w-3.5 h-3.5 ${isProcessingOCR ? 'animate-spin' : ''}`} />
+                {isProcessingOCR ? 'Sedang Memproses...' : 'Coba Scan Ulang AI'}
               </button>
               <button
                 type="button"
@@ -927,6 +888,7 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
               : 'border-slate-300 hover:border-orange-400 bg-slate-50/50 hover:bg-orange-50/30'
           }`}
           onClick={() => {
+            if (isProcessingOCR) return;
             if (scanStep === 'idle' || scanStep === 'preview') {
               fileInputRef.current?.click();
             }
@@ -937,6 +899,7 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
             type="file"
             accept="image/jpeg,image/png,image/webp"
             className="hidden"
+            disabled={isProcessingOCR}
             onChange={(e) => {
               if (e.target.files && e.target.files[0]) {
                 const pickedFile = e.target.files[0];
@@ -967,22 +930,24 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <button
                   type="button"
+                  disabled={isProcessingOCR}
                   onClick={(e) => {
                     e.stopPropagation();
                     fileInputRef.current?.click();
                   }}
-                  className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-black text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+                  className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-black text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   PILIH GAMBAR
                 </button>
 
                 <button
                   type="button"
+                  disabled={isProcessingOCR}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleUseDemoSample();
                   }}
-                  className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                  className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50"
                 >
                   <Sparkles className="w-4 h-4 text-orange-500" />
                   Gunakan Screenshot Contoh (Demo Scan)
@@ -994,10 +959,10 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
               </div>
             </div>
           ) : (
-            /* SCANNING ANIMATION */
-            <div className="py-8 space-y-4 max-w-sm mx-auto">
-              <div className="relative w-20 h-20 mx-auto">
-                <div className="w-20 h-20 rounded-full border-4 border-orange-200 border-t-orange-600 animate-spin" />
+            /* SCANNING ANIMATION WITH 5-STEP PROGRESS PER SECTION 9 */
+            <div className="py-6 space-y-4 max-w-sm mx-auto">
+              <div className="relative w-16 h-16 mx-auto">
+                <div className="w-16 h-16 rounded-full border-4 border-orange-200 border-t-orange-600 animate-spin" />
                 <div className="absolute inset-0 flex items-center justify-center text-orange-600 font-black text-xs">
                   AI
                 </div>
@@ -1005,13 +970,60 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
 
               <div className="space-y-1">
                 <h4 className="text-base font-extrabold text-slate-900">
-                  {scanStep === 'reading' && 'Membaca data screenshot...'}
-                  {scanStep === 'processing' && 'Memproses seluruh 16 KPI dengan AI Vision...'}
-                  {scanStep === 'validating' && 'Memvalidasi konsistensi data & normalisasi...'}
+                  Menganalisis screenshot...
                 </h4>
                 <p className="text-xs text-slate-500">
-                  Mengekstrak penjualan, viewers, order, durasi, dan rasio konversi...
+                  Mengekstrak seluruh 16 KPI performa dengan AI Vision multimodal
                 </p>
+              </div>
+
+              {/* 5 Progress / Status Steps */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-3.5 text-left space-y-2 shadow-2xs">
+                {[
+                  { step: 1, label: '1. Membaca screenshot' },
+                  { step: 2, label: '2. Mengirim ke AI OCR' },
+                  { step: 3, label: '3. Menganalisis data' },
+                  { step: 4, label: '4. Memetakan data' },
+                  { step: 5, label: '5. Selesai' },
+                ].map(({ step, label }) => {
+                  const isDone = ocrProgressStep > step;
+                  const isCurrent = ocrProgressStep === step;
+                  return (
+                    <div
+                      key={step}
+                      className={`flex items-center justify-between text-xs font-semibold px-2 py-1 rounded-lg transition-colors ${
+                        isDone
+                          ? 'text-emerald-700 bg-emerald-50/60'
+                          : isCurrent
+                          ? 'text-orange-600 bg-orange-50 font-bold'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {isDone ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        ) : isCurrent ? (
+                          <RefreshCw className="w-3.5 h-3.5 text-orange-500 shrink-0 animate-spin" />
+                        ) : (
+                          <div className="w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 flex items-center justify-center text-[9px] text-slate-400">
+                            {step}
+                          </div>
+                        )}
+                        <span>{label}</span>
+                      </div>
+                      {isCurrent && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-200/80 text-orange-800 font-extrabold">
+                          Memproses
+                        </span>
+                      )}
+                      {isDone && (
+                        <span className="text-[10px] text-emerald-600 font-extrabold">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
