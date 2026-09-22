@@ -66,9 +66,10 @@ function parseIndonesianNumber(val: any): number | null {
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  // Port 3000 is strictly mandated by AI Studio container infrastructure
+  const PORT = 3000;
 
-  // Enable CORS for all origins (supporting multi-PC, shared app, iframes, and preview environments)
+  // Global CORS headers for cross-origin, iframes, multi-PC and preview environments
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -79,9 +80,24 @@ async function startServer() {
     next();
   });
 
-  // Support up to 25MB body for screenshot transmission (held purely in RAM)
-  app.use(express.json({ limit: '25mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+  // Support up to 30MB body for high-resolution screenshot transmission (held purely in RAM)
+  app.use(express.json({ limit: '30mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '30mb' }));
+
+  // Graceful handling of body-parser errors (e.g., payload too large or invalid JSON)
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err) {
+      console.error('[API Error] Request body parse failed:', err.message);
+      return res.status(err.status || 400).json({
+        success: false,
+        error: err.type === 'entity.too.large' 
+          ? 'Ukuran gambar screenshot terlalu besar (maksimal 30MB). Silakan gunakan gambar yang lebih kecil.' 
+          : 'Format request data screenshot tidak valid.',
+        details: err.message,
+      });
+    }
+    next();
+  });
 
   // Health check API
   app.get(['/api/health', '/api/health/'], (req, res) => {
@@ -308,10 +324,38 @@ You MUST return a JSON object strictly matching this schema:
     }
   };
 
-  // Mount screenshot extraction routes
+  // Status probe endpoint for screenshot extraction
+  app.get(['/api/extract-shopee-screenshot', '/api/extract-shopee-screenshot/'], (req, res) => {
+    res.json({
+      status: 'ready',
+      message: 'Shopee Screenshot Extraction API is active and ready for POST requests.',
+      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+    });
+  });
+
+  // Mount screenshot extraction routes with multiple aliases
   app.post('/api/extract-shopee-screenshot', handleScreenshotExtraction);
   app.post('/api/extract-shopee-screenshot/', handleScreenshotExtraction);
   app.post('/api/extract-livestream-screenshot', handleScreenshotExtraction);
+  app.post('/api/extract-livestream-screenshot/', handleScreenshotExtraction);
+  app.post('/api/shopee-ocr', handleScreenshotExtraction);
+  app.post('/api/shopee-ocr/', handleScreenshotExtraction);
+  app.post('/api/ocr', handleScreenshotExtraction);
+  app.post('/api/ocr/', handleScreenshotExtraction);
+  app.post('/extract-shopee-screenshot', handleScreenshotExtraction);
+
+  // Catch-all for unhandled /api/* routes (ALWAYS return JSON 404, never fallback to HTML)
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: `Endpoint API ${req.method} ${req.path} tidak ditemukan pada server.`,
+      availableEndpoints: [
+        'POST /api/extract-shopee-screenshot',
+        'GET /api/extract-shopee-screenshot',
+        'GET /api/health',
+      ],
+    });
+  });
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== 'production') {
@@ -323,14 +367,6 @@ You MUST return a JSON object strictly matching this schema:
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-
-    // For any unhandled API calls, return JSON 404
-    app.all('/api/*', (req, res) => {
-      res.status(404).json({
-        success: false,
-        error: `Endpoint API ${req.method} ${req.path} tidak ditemukan pada server.`,
-      });
-    });
 
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

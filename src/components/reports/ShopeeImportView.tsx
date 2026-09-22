@@ -145,40 +145,76 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
         await new Promise((r) => setTimeout(r, 400));
 
         setScanStep('processing');
-        // Call backend API /api/extract-shopee-screenshot with automatic retry on cold-start (404/502/503)
+        // Multi-candidate endpoint retry mechanism to guarantee cross-PC and proxy compatibility
+        const candidateEndpoints = [
+          '/api/extract-shopee-screenshot',
+          `${window.location.origin}/api/extract-shopee-screenshot`,
+          '/api/extract-livestream-screenshot',
+          '/api/shopee-ocr',
+        ];
+
         let res: Response | null = null;
         let lastError = '';
 
-        for (let attempt = 1; attempt <= 2; attempt++) {
+        for (const endpoint of candidateEndpoints) {
           try {
-            res = await fetch('/api/extract-shopee-screenshot', {
+            res = await fetch(endpoint, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
               body: JSON.stringify({
                 imageBase64: base64String,
-                mimeType: file.type,
+                mimeType: file.type || 'image/jpeg',
               }),
             });
 
-            if (res.ok) break;
+            if (res.ok) {
+              break;
+            }
 
-            // If server cold start / temporary high demand, wait and retry once
-            if ((res.status === 404 || res.status === 502 || res.status === 503) && attempt === 1) {
-              await new Promise((r) => setTimeout(r, 1200));
+            // If 404 on this endpoint, try next alias
+            if (res.status === 404) {
+              const errData = await res.json().catch(() => ({}));
+              lastError = errData.error || `Endpoint ${endpoint} merespon 404`;
               continue;
+            }
+
+            // If 502/503 cold start, pause briefly and retry once on this endpoint
+            if (res.status === 502 || res.status === 503) {
+              await new Promise((r) => setTimeout(r, 1200));
+              const retryRes = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Accept: 'application/json',
+                },
+                body: JSON.stringify({
+                  imageBase64: base64String,
+                  mimeType: file.type || 'image/jpeg',
+                }),
+              });
+              if (retryRes.ok) {
+                res = retryRes;
+                break;
+              }
             }
 
             const errJson = await res.json().catch(() => ({}));
             lastError = errJson.error || `Server merespon error (${res.status})`;
+            break;
           } catch (netErr: any) {
-            lastError = netErr.message || 'Koneksi ke server terputus';
-            if (attempt === 1) {
-              await new Promise((r) => setTimeout(r, 1200));
-            }
+            lastError = netErr.message || 'Koneksi ke endpoint terputus';
           }
         }
 
         if (!res || !res.ok) {
+          if (res?.status === 404) {
+            throw new Error(
+              'Layanan backend OCR sedang dalam proses sinkronisasi rute server (HTTP 404). Silakan klik "Coba Scan Ulang AI" di bawah atau klik "Input Manual dengan Screenshot di Samping" untuk melihat gambar sambil mengisi data.'
+            );
+          }
           throw new Error(lastError || 'Gagal memproses gambar. Silakan klik tombol Coba Scan Ulang AI.');
         }
 
@@ -247,38 +283,73 @@ export const ShopeeImportView: React.FC<ShopeeImportViewProps> = ({
     setScanStep('processing');
 
     try {
+      const candidateEndpoints = [
+        '/api/extract-shopee-screenshot',
+        `${window.location.origin}/api/extract-shopee-screenshot`,
+        '/api/extract-livestream-screenshot',
+        '/api/shopee-ocr',
+      ];
+
       let res: Response | null = null;
       let lastError = '';
 
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      for (const endpoint of candidateEndpoints) {
         try {
-          res = await fetch('/api/extract-shopee-screenshot', {
+          res = await fetch(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
             body: JSON.stringify({
               imageBase64: uploadedImageSrc,
               mimeType: uploadedFileType || 'image/jpeg',
             }),
           });
 
-          if (res.ok) break;
+          if (res.ok) {
+            break;
+          }
 
-          if ((res.status === 404 || res.status === 502 || res.status === 503) && attempt === 1) {
-            await new Promise((r) => setTimeout(r, 1200));
+          if (res.status === 404) {
+            const errData = await res.json().catch(() => ({}));
+            lastError = errData.error || `Endpoint ${endpoint} merespon 404`;
             continue;
+          }
+
+          if (res.status === 502 || res.status === 503) {
+            await new Promise((r) => setTimeout(r, 1200));
+            const retryRes = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify({
+                imageBase64: uploadedImageSrc,
+                mimeType: uploadedFileType || 'image/jpeg',
+              }),
+            });
+            if (retryRes.ok) {
+              res = retryRes;
+              break;
+            }
           }
 
           const errJson = await res.json().catch(() => ({}));
           lastError = errJson.error || `Server merespon error (${res.status})`;
+          break;
         } catch (netErr: any) {
-          lastError = netErr.message || 'Koneksi ke server terputus';
-          if (attempt === 1) {
-            await new Promise((r) => setTimeout(r, 1200));
-          }
+          lastError = netErr.message || 'Koneksi ke endpoint terputus';
         }
       }
 
       if (!res || !res.ok) {
+        if (res?.status === 404) {
+          throw new Error(
+            'Layanan backend OCR sedang dalam proses sinkronisasi rute server (HTTP 404). Silakan coba lagi sebentar lagi atau gunakan "Input Manual dengan Screenshot di Samping".'
+          );
+        }
         throw new Error(lastError || 'Gagal membaca gambar saat dicoba ulang.');
       }
 
